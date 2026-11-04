@@ -167,7 +167,7 @@ with project("FoodHunt"):
 
     with filter("system:Android"):
         androidapplicationid("com.rihen.monapp")
-        androidminsdk(23)
+        androidminsdk(24)
         androidtargetsdk(31)
         androidcompilesdk(31)
         androidabis(["arm64-v8a", "x86_64"])

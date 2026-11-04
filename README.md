@@ -12,6 +12,9 @@ sur les briques de Nkentseu (mathématiques, images, dessin, recherche de chemin
 - **Le kit NKCanvas de Nkentseu**, à décompresser dans `Kits/` (on obtient `Kits/NKCanvas/`). Il est publié
   dans [Nkentseu-Kits](https://github.com/Rihen-Universe/Nkentseu-Kits/releases) (`Canvas-kit-Windows.zip`).
   Le kit ne va pas dans ce dépôt : ce sont des bibliothèques précompilées.
+  **Attention** : FoodHunt utilise maintenant des briques ajoutées à Nkentseu le 04/11/2026 (`NkSpriteSheet`,
+  `NkGridPath`, `NkImagePalette`…). Il lui faut donc un kit NKCanvas de cette date ou plus récent ; le kit du
+  22/10 ne suffit pas (celui-là convient au premier commit de ce dépôt).
 
 ## Construire et lancer
 
@@ -24,6 +27,11 @@ Build\Bin\Debug-Windows\FoodHunt\FoodHunt.exe
 
 Dans NKCode : ouvrir le dossier `GClone`, puis Ctrl+B pour construire et Ctrl+R pour lancer. Le programme
 démarre dans la racine du dossier ouvert.
+
+## Images
+
+Les aliments de `Resources/aliments_libres/` viennent de Fluent Emoji de Microsoft (licence MIT) : voir
+`Resources/aliments_libres/LICENCES.md`.
 
 ## Licence
 

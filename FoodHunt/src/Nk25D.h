@@ -1,110 +1,121 @@
-// Nk25D.hpp — Fourmis + boîtes 2.5D procédurales, collisions, portage de blocs.
-// SANS STL (pas de vector/function/algorithm/memory). Seules dépendances : math.h/stdlib.h (C).
-//   -DNK25D_USE_NKVECTOR : utilise nkentseu::NkVector (sinon mini-tableau interne)
-//   -DNK25D_USE_NKMATH   : utilise nkentseu::math::NkSqrt (voir namespace m pour brancher le reste)
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Nk25D.h — Fourmis + boîtes 2.5D procédurales, collisions, portage de blocs.
+// Migré le 04/11/2026 sur Nkentseu : plus aucune bibliothèque standard, plus de couche maison pour ce que le
+// moteur fournit déjà (NkVec2f, NkColor, NkSin..., NkVector, NkUniquePtr, NkStableSort, NkConvexHull2D, NkLcg32,
+// NkGuiDrawList). Reste ici ce qui est propre au jeu : la caméra 2.5D, les entités, la file de rendu.
 #pragma once
-#include <stdlib.h>
-#include <math.h>
-#ifdef NK25D_USE_NKMATH
-  #include "NKMath/NKMath.h"
-#endif
-#ifdef NK25D_USE_NKVECTOR
-  #include "NKContainers/Sequential/NkVector.h"      // chemin supposé
-#endif
+#include "NKMath/NKMath.h"
+#include "NKMath/NkConvexHull2D.h"
+#include "NKMath/NkRandom.h"
+#include "NKContainers/Sequential/NkVector.h"
+#include "NKContainers/Utilities/NkSort.h"
+#include "NKContainers/String/NkString.h"
+#include "NKContainers/String/NkFormat.h"
+#include "NKMemory/NkUniquePtr.h"
+#include "NKGui/Core/NkGuiDrawList.h"
+#include "NKGui/Core/NkGuiFont.h"
+#include "NKCanvas/App/NkCanvasTexte.h"
 
 namespace nk25d {
+using namespace nkentseu;
+using namespace nkentseu::math;
+using memory::NkUniquePtr;
+using memory::NkMakeUnique;
 
-constexpr float PI = 3.14159265f;
+using Dl = nkgui::NkGuiDrawList;
 
-// ---- Couche math : un seul endroit à brancher sur NKMath --------------------
-namespace m {
-    inline float Sin(float v)  { return sinf(v); }
-    inline float Cos(float v)  { return cosf(v); }
-    inline float Atan2(float y, float x) { return atan2f(y, x); }
-    inline float Exp(float v)  { return expf(v); }
-    inline float Sqrt(float v) {
-#ifdef NK25D_USE_NKMATH
-        return nkentseu::math::NkSqrt(v);
-#else
-        return sqrtf(v);
-#endif
-    }
-    inline float Hypot(float a, float b) { return Sqrt(a * a + b * b); }
-    template <class T> inline T Min(T a, T b) { return a < b ? a : b; }
-    template <class T> inline T Max(T a, T b) { return a > b ? a : b; }
-    template <class T> inline T Clamp(T v, T lo, T hi) { return v < lo ? lo : (v > hi ? hi : v); }
-    inline float Wrap(float a) { while (a > PI) a -= 2 * PI; while (a < -PI) a += 2 * PI; return a; }
-}
+// Police du jeu : posée une fois par l'application (les polices embarquées de NKFont, chargées par NkCanvasGuiApp).
+// Le texte est un détail d'interface : le passer en paramètre de chaque primitive alourdirait toutes les signatures.
+inline nkgui::NkGuiFont*& GameFont() { static nkgui::NkGuiFont* f = nullptr; return f; }
 
-// ---- Tableau dynamique ------------------------------------------------------
-#ifdef NK25D_USE_NKVECTOR
-template <class T> using Array = nkentseu::NkVector<T>;
-#else
-template <class T> class Array {
-public:
-    Array() = default; ~Array() { free(d_); }
-    Array(const Array&) = delete; Array& operator=(const Array&) = delete;
-    void PushBack(const T& v) { if (n_ == c_) { c_ = c_ ? c_ * 2 : 8; d_ = (T*)realloc(d_, c_ * sizeof(T)); } d_[n_++] = v; }
-    int  Size() const { return n_; }
-    void Clear() { n_ = 0; }
-    T& operator[](int i) { return d_[i]; }
-private: T* d_ = nullptr; int n_ = 0, c_ = 0;
-};
-#endif
-
-struct Vec2 { float x = 0, y = 0; };
-struct Col  { unsigned char r, g, b, a = 255; };
-
-inline Col Shade(Col c, float f) {
-    auto k = [&](unsigned char v) { return (unsigned char)m::Clamp(v * f, 0.f, 255.f); };
-    return { k(c.r), k(c.g), k(c.b), c.a };
-}
-
-// ---- Interface de rendu (adapter à NKCanvas : voir NkPainter.hpp) ------------
-struct IPainter {
-    virtual ~IPainter() {}
-    virtual void FillPolygon(const Vec2* pts, int n, Col c) = 0;      // convexe
-    virtual void FillEllipse(Vec2 center, float rx, float ry, Col c) = 0;
-    virtual void DrawLine(Vec2 a, Vec2 b, float width, Col c) = 0;
-    virtual void DrawText(Vec2 center, const char* text, float size, Col c) = 0;
-};
-
-// ---- Caméra : écran = (x, y*tilt - z). Profondeur de vue = y + z*tilt --------
-// (plus haut = plus près de la caméra, car on regarde d'en haut)
+// =============================================================================
+//  CAMÉRA 2.5D : une projection oblique qui donne l'illusion du relief avec de la 2D
+// =============================================================================
+// Principe. Le monde du jeu a trois axes : x vers la droite, y vers l'avant (vers le bas de l'écran, donc vers
+// le joueur) et z vers le haut (la hauteur). L'écran n'en a que deux. On regarde la scène d'en haut, la caméra
+// étant inclinée d'un angle phi au-dessus du plan du sol (phi = 90 degrés : vue de dessus pure ; phi = 0 : vue de côté).
+//
+// Projection orthographique. Soit u = (0, cos phi, sin phi) le vecteur unitaire qui pointe vers la caméra, et
+// w = (0, sin phi, -cos phi) l'axe vertical de l'écran (vers le bas). Un point P = (x, y, z) a pour coordonnées
+//     ecran_x = x
+//     ecran_y = P . w = y sin phi - z cos phi .
+// On divise ecran_y par cos phi (simple changement d'unité, pour garder une hauteur z « vraie » en pixels) :
+//     ecran_y = y * tilt - z ,   avec  tilt = tan phi .
+// C'est la formule de Project : l'inclinaison `tilt` écrase le sol verticalement (tilt < 1 : un pas en y
+// avance moins vite à l'écran qu'un pas en x) et la hauteur z remonte l'objet d'autant de pixels.
+//
+// Pourquoi une projection ORTHOGRAPHIQUE et pas en perspective : tous les blocs gardent la même taille à l'écran
+// quel que soit leur éloignement, ce qui convient à un plateau de pixels qu'on lit comme une grille. Une
+// perspective demanderait une division par la profondeur et déformerait la grille.
+//
+// Profondeur (algorithme du peintre). Pour dessiner juste, il faut afficher du plus loin au plus près : un objet
+// proche masque un objet lointain. La proximité à la caméra d'un point est son produit scalaire avec u :
+//     P . u = y cos phi + z sin phi ;  divisé par cos phi :  y + z tan phi = y + z * tilt .
+// C'est Depth. Plus la valeur est grande, plus le point est proche de la caméra (plus bas à l'écran, ou plus haut
+// dans l'air). Les commandes sont triées par cette valeur croissante, puis dessinées dans cet ordre.
+//
+// Ombre portée. Une lumière de direction (lightDir.x, lightDir.y) par unité de hauteur : un point à la hauteur z
+// projette son ombre sur le sol en (x + lightDir.x * z, y + lightDir.y * z), puis on projette ce point du sol
+// avec z = 0. C'est une projection oblique parallèle (la lumière est supposée infiniment lointaine).
 struct Camera {
-    Vec2  origin{0, 0};
-    float tilt = 0.65f;
-    Vec2  lightDir{0.55f, 0.30f};
-    Vec2 Project(float x, float y, float z) const { return { origin.x + x, origin.y + y * tilt - z }; }
-    Vec2 ShadowPos(float x, float y, float z) const { return Project(x + lightDir.x * z, y + lightDir.y * z, 0); }
-    float Depth(float, float y, float z) const { return y + z * tilt; }
+    NkVec2f origin{0.f, 0.f};
+    float   tilt = 0.65f;                 // tan(phi) : 0.65 correspond à phi = 33 degrés
+    NkVec2f lightDir{0.55f, 0.30f};
+    NkVec2f Project(float x, float y, float z) const { return NkVec2f(origin.x + x, origin.y + y * tilt - z); }
+    NkVec2f ShadowPos(float x, float y, float z) const { return Project(x + lightDir.x * z, y + lightDir.y * z, 0.f); }
+    float   Depth(float, float y, float z) const { return y + z * tilt; }
 };
 
-inline void DrawSphere(IPainter& p, const Camera& cam, float x, float y, float z, float r, Col base) {
-    Vec2 c = cam.Project(x, y, z);
-    p.FillEllipse(c, r, r, Shade(base, 0.60f));
-    p.FillEllipse({c.x - r * .10f, c.y - r * .12f}, r * .88f, r * .88f, base);
-    p.FillEllipse({c.x - r * .30f, c.y - r * .35f}, r * .40f, r * .32f, Shade(base, 1.35f));
+// Texte centré en (cx, cy), de hauteur `size` (pixels), avec une ombre portée optionnelle.
+inline void GameText(Dl& dl, float cx, float cy, float size, const char* t, const NkColor& c, bool shadow = true) {
+    if (!GameFont()) return;
+    if (shadow) renderer::NkTexteCentreTaille(dl, GameFont(), cx + size * .05f, cy - size * .5f + size * .08f, t, NkColor(0, 0, 0, 90), size);
+    renderer::NkTexteCentreTaille(dl, GameFont(), cx, cy - size * .5f, t, c, size);
 }
 
-// ---- File de rendu : commandes POD (pas de std::function) --------------------
-// Pièce dessinable personnalisée (ex : cellules du plateau)
-struct ICustomDraw { virtual void DrawPiece(IPainter& p, const Camera& cam, int idx) const = 0; virtual ~ICustomDraw() {} };
+// =============================================================================
+//  SPHÈRE : trois disques qui suggèrent le volume
+// =============================================================================
+// En projection orthographique, une sphère de rayon r se projette en un DISQUE de rayon r centré sur la
+// projection de son centre, quelle que soit l'inclinaison : c'est exact, pas une approximation. Reste à lui
+// donner du volume par l'ombrage. Au lieu de calculer un éclairage par pixel (loi de Lambert, intensité
+// proportionnelle à n . l), on superpose trois formes, du plus sombre au plus clair, décalées vers la lumière
+// (en haut à gauche) :
+//   1. un disque entier sombre (teinte x 0.60) : la zone d'ombre propre, tout le contour ;
+//   2. un disque un peu plus petit (0.88 r) décalé vers la lumière, de la teinte de base : la partie éclairée ;
+//   3. une petite ellipse très claire (teinte x 1.35) : le reflet brillant (terme spéculaire).
+// Le décalage des centres crée un croissant sombre côté opposé à la lumière, ce qui se lit comme un volume.
+inline void DrawSphere(Dl& dl, const Camera& cam, float x, float y, float z, float r, const NkColor& base) {
+    NkVec2f c = cam.Project(x, y, z);
+    dl.AddEllipseFilled(c, r, r, base.Shade(0.60f));
+    dl.AddEllipseFilled(NkVec2f(c.x - r * .10f, c.y - r * .12f), r * .88f, r * .88f, base);
+    dl.AddEllipseFilled(NkVec2f(c.x - r * .30f, c.y - r * .35f), r * .40f, r * .32f, base.Shade(1.35f));
+}
+
+// =============================================================================
+//  FILE DE RENDU : des commandes simples, triées par profondeur
+// =============================================================================
+// Chaque entité « émet » ses morceaux dessinables (sphères, pattes, yeux...) avec leur profondeur ; la scène
+// trie ensuite TOUTES les commandes ensemble et les dessine dans l'ordre. C'est l'algorithme du peintre à
+// l'échelle des morceaux et non des objets : la tête d'une fourmi peut passer devant le corps d'une autre tout
+// en restant derrière sa propre antenne. Le tri est STABLE (NkStableSort, tri fusion) : deux commandes de même
+// profondeur gardent leur ordre d'émission, donc l'image ne scintille pas d'une trame à l'autre.
+struct ICustomDraw { virtual void DrawPiece(Dl& dl, const Camera& cam, int idx) const = 0; virtual ~ICustomDraw() {} };
 
 enum CmdKind { CMD_LINE, CMD_ELLIPSE, CMD_SPHERE, CMD_BOX, CMD_TAPER, CMD_CUSTOM };
 struct DrawCmd {
     float depth; int kind;
-    Vec2 p0, p1; float a, b; Col col; const void* ptr;
+    NkVec2f p0, p1; float a, b; NkColor col; const void* ptr;
 };
 struct RenderQueue {
-    DrawCmd* cmds; int n, cap;
-    void Push(const DrawCmd& c) { if (n < cap) cmds[n++] = c; }
-    void Line(float dp, Vec2 a, Vec2 b, float w, Col c)    { Push({dp, CMD_LINE, a, b, w, 0, c, nullptr}); }
-    void Taper(float dp, Vec2 a, Vec2 b, float w0, float w1, Col c) { Push({dp, CMD_TAPER, a, b, w0, w1, c, nullptr}); }
-    void Ellipse(float dp, Vec2 c0, float rx, float ry, Col c) { Push({dp, CMD_ELLIPSE, c0, {}, rx, ry, c, nullptr}); }
-    void Sphere(float dp, float x, float y, float z, float r, Col c) { Push({dp, CMD_SPHERE, {x, y}, {}, z, r, c, nullptr}); }
-    void Custom(float dp, const void* iface, int idx) { Push({dp, CMD_CUSTOM, {}, {}, (float)idx, 0, {0,0,0,0}, iface}); }
-    void BoxCmd(float dp, const void* b) { Push({dp, CMD_BOX, {}, {}, 0, 0, {0,0,0,0}, b}); }
+    NkVector<DrawCmd>& cmds;
+    void Push(const DrawCmd& c) { cmds.PushBack(c); }
+    void Line(float dp, NkVec2f a, NkVec2f b, float w, NkColor c)    { Push({dp, CMD_LINE, a, b, w, 0, c, nullptr}); }
+    void Taper(float dp, NkVec2f a, NkVec2f b, float w0, float w1, NkColor c) { Push({dp, CMD_TAPER, a, b, w0, w1, c, nullptr}); }
+    void Ellipse(float dp, NkVec2f c0, float rx, float ry, NkColor c) { Push({dp, CMD_ELLIPSE, c0, NkVec2f(), rx, ry, c, nullptr}); }
+    void Sphere(float dp, float x, float y, float z, float r, NkColor c) { Push({dp, CMD_SPHERE, NkVec2f(x, y), NkVec2f(), z, r, c, nullptr}); }
+    void Custom(float dp, const void* iface, int idx) { Push({dp, CMD_CUSTOM, NkVec2f(), NkVec2f(), (float)idx, 0, NkColor(0, 0, 0, 0), iface}); }
+    void BoxCmd(float dp, const void* b) { Push({dp, CMD_BOX, NkVec2f(), NkVec2f(), 0, 0, NkColor(0, 0, 0, 0), b}); }
 };
 
 enum EntityKind { KIND_ANT, KIND_BOX, KIND_BOARD, KIND_HOLE };
@@ -115,36 +126,26 @@ struct Entity {
     virtual bool ResolveCircle(float&, float&, float, float&, float&) { return false; }
     virtual void Update(float dt) = 0;
     virtual void LateUpdate() {}
-    virtual void DrawShadow(IPainter&, const Camera&) const = 0;
+    virtual void DrawShadow(Dl&, const Camera&) const = 0;
     virtual void Emit(RenderQueue&, const Camera&) const = 0;
 };
-
-inline void IntToStr(int v, char* o) {
-    char t[12]; int n = 0, neg = v < 0; if (neg) v = -v;
-    do { t[n++] = char('0' + v % 10); v /= 10; } while (v);
-    int k = 0; if (neg) o[k++] = '-'; while (n) o[k++] = t[--n]; o[k] = 0;
-}
-
-// Segment effilé (épais en a, fin en b) : base des pattes stylisées
-inline void DrawTaper(IPainter& p, Vec2 a, Vec2 b, float w0, float w1, Col c) {
-    float dx = b.x - a.x, dy = b.y - a.y, l = m::Hypot(dx, dy);
-    if (l < 1e-4f) return;
-    float nx = -dy / l * .5f, ny = dx / l * .5f;
-    Vec2 q[4] = { {a.x + nx * w0, a.y + ny * w0}, {b.x + nx * w1, b.y + ny * w1},
-                  {b.x - nx * w1, b.y - ny * w1}, {a.x - nx * w0, a.y - ny * w0} };
-    p.FillPolygon(q, 4, c);
-}
 
 class Ant;
 
 // =============================================================================
 //  BOX : bloc 3D orientable, déplaçable, portable (se réduit quand porté)
 // =============================================================================
+// Un pavé de largeur w, profondeur d, hauteur h, tourné de `yaw` autour de l'axe vertical. Ses quatre coins au sol
+// se calculent par la rotation 2D (x', y') = (lx cos yaw - ly sin yaw, lx sin yaw + ly cos yaw). Seules les faces
+// tournées vers la caméra sont dessinées (élimination des faces cachées, « back-face culling ») : la normale
+// sortante d'un côté (a -> b) est (b.y - a.y, -(b.x - a.x)) ; si sa composante y est négative, la face regarde
+// vers le fond de l'écran et on l'ignore. L'éclairage de chaque face est ensuite lambertien simplifié :
+// 0.5 + 0.35 * (n . l), borné, où l est la direction vers la lumière.
 class Box : public Entity {
 public:
     float w = 56, d = 44, h = 22, yaw = 0;
     int   value = 0;
-    Col   color{80, 200, 240, 255};
+    NkColor color{80, 200, 240, 255};
     bool  mystery = false, faceMotion = false, showText = true;
     float carryScale = 0.38f;
     float lift = 0;                      // hauteur ajoutée (portage)
@@ -159,90 +160,85 @@ public:
     void SetCarried(bool c)   { carried = c; scT_ = c ? carryScale : 1.f; if (c) { moving_ = false; hop_ = 0; } else { carrier = nullptr; lift = 0; } }
     float Scale() const { return sc_; }
 
-    // Point de l'empreinte le plus proche de (px,py) (pour collisions / ramassage)
+    // Point de l'empreinte le plus proche de (px,py) (pour collisions / ramassage) : on exprime le point dans le
+    // repère local du pavé (rotation inverse), on le borne au rectangle, puis on revient au repère monde.
     void Closest(float px, float py, float& cx, float& cy) const {
-        float cs = m::Cos(yaw), sn = m::Sin(yaw), dx = px - x, dy = py - y;
+        float cs = NkCos(yaw), sn = NkSin(yaw), dx = px - x, dy = py - y;
         float lx = dx * cs + dy * sn, ly = -dx * sn + dy * cs;
         float hx = w * sc_ * .5f, hy = d * sc_ * .5f;
-        float qx = m::Clamp(lx, -hx, hx), qy = m::Clamp(ly, -hy, hy);
+        float qx = NkClamp(lx, -hx, hx), qy = NkClamp(ly, -hy, hy);
         cx = x + qx * cs - qy * sn; cy = y + qx * sn + qy * cs;
     }
 
     void Update(float dt) override {
-        sc_ += (scT_ - sc_) * (1 - m::Exp(-10 * dt));
+        // Lissage exponentiel : v += (cible - v) * (1 - e^(-k dt)). Indépendant du pas de temps (contrairement à
+        // v += (cible - v) * k * dt qui diverge si k dt > 1), et sans dépassement.
+        sc_ += (scT_ - sc_) * (1 - NkExp(-10 * dt));
         if (!carried) {
             if (moving_) {
-                float dx = tx_ - x, dy = ty_ - y, dist = m::Hypot(dx, dy), k = 1 - m::Exp(-12 * dt);
+                float dx = tx_ - x, dy = ty_ - y, dist = NkVec2f(dx, dy).Len(), k = 1 - NkExp(-12 * dt);
                 x += dx * k; y += dy * k;
-                hop_ = m::Min(dist * 0.25f, 14.f);
-                if (faceMotion && dist > 6) yawT_ = m::Atan2(dy, dx);
+                hop_ = NkMin(dist * 0.25f, 14.f);
+                if (faceMotion && dist > 6) yawT_ = NkAtan2(dy, dx);
                 if (dist < .3f) { x = tx_; y = ty_; moving_ = false; hop_ = 0; }
             }
-            yaw += m::Wrap(yawT_ - yaw) * (1 - m::Exp(-14 * dt));
+            yaw += NkAngle::FromRad(yawT_ - yaw).Rad() * (1 - NkExp(-14 * dt));
         }
+        // Ressort amorti (écrasement à l'appui) : accélération = -k x - c v, intégrée à pas explicite.
         vel_ += (-180 * squash_ - 14 * vel_) * dt;
         squash_ += vel_ * dt;
     }
 
-    void DrawShadow(IPainter& p, const Camera& cam) const override {
+    // Ombre : enveloppe convexe de la base et du dessus décalé par la lumière (NkConvexHull2D).
+    void DrawShadow(Dl& dl, const Camera& cam) const override {
         float top = h * sc_ + hop_ + lift;
-        Vec2 pts[8];
+        NkVector<NkVec2f> pts, hull;
         for (int i = 0; i < 4; ++i) {
-            Vec2 c = Corner(i);
-            pts[i] = cam.Project(c.x, c.y, 0); pts[i + 4] = cam.ShadowPos(c.x, c.y, top);
+            NkVec2f c = Corner(i);
+            pts.PushBack(cam.Project(c.x, c.y, 0)); pts.PushBack(cam.ShadowPos(c.x, c.y, top));
         }
-        Vec2 hull[16]; int n = Hull(pts, 8, hull);
-        p.FillPolygon(hull, n, {0, 0, 0, carried ? (unsigned char)35 : (unsigned char)55});
+        NkConvexHull2D(pts, hull);
+        if (hull.Size() >= 3) dl.AddConvexPolyFilled(hull.Data(), (int32)hull.Size(), NkColor(0, 0, 0, carried ? 35 : 55));
     }
 
     void Emit(RenderQueue& q, const Camera& cam) const override {
-        float hh = m::Max(4.f, h * sc_);
+        float hh = NkMax(4.f, h * sc_);
         q.BoxCmd(cam.Depth(x, y, hop_ + lift + hh), this);
     }
 
-    void DrawBody(IPainter& p, const Camera& cam) const {
-        float z0 = hop_ + lift, hh = m::Max(4.f * sc_, h * sc_ * (1 - squash_ * 0.012f)), z1 = z0 + hh;
-        Vec2 c[4]; for (int i = 0; i < 4; ++i) c[i] = Corner(i);
-        float lx = -cam.lightDir.x, ly = -cam.lightDir.y, ll = m::Hypot(lx, ly); lx /= ll; ly /= ll;
+    void DrawBody(Dl& dl, const Camera& cam) const {
+        float z0 = hop_ + lift, hh = NkMax(4.f * sc_, h * sc_ * (1 - squash_ * 0.012f)), z1 = z0 + hh;
+        NkVec2f c[4]; for (int i = 0; i < 4; ++i) c[i] = Corner(i);
+        NkVec2f lv(-cam.lightDir.x, -cam.lightDir.y); lv = lv / lv.Len();
         for (int i = 0; i < 4; ++i) {
-            Vec2 a = c[i], b = c[(i + 1) & 3];
-            float nx = b.y - a.y, ny = -(b.x - a.x), nl = m::Hypot(nx, ny); nx /= nl; ny /= nl;
-            if (ny <= 0.001f) continue;
-            float lit = m::Clamp(0.5f + 0.35f * (nx * lx + ny * ly), 0.4f, 0.95f);
-            Vec2 q[4] = { cam.Project(a.x, a.y, z0), cam.Project(b.x, b.y, z0), cam.Project(b.x, b.y, z1), cam.Project(a.x, a.y, z1) };
-            p.FillPolygon(q, 4, Shade(color, lit));
-            p.DrawLine(q[3], q[2], 1.5f * sc_, Shade(color, 1.35f));
+            NkVec2f a = c[i], b = c[(i + 1) & 3];
+            NkVec2f nv(b.y - a.y, -(b.x - a.x)); nv = nv / nv.Len();
+            if (nv.y <= 0.001f) continue;                                    // face tournée vers le fond : cachée
+            float lit = NkClamp(0.5f + 0.35f * (nv.x * lv.x + nv.y * lv.y), 0.4f, 0.95f);
+            NkVec2f q[4] = { cam.Project(a.x, a.y, z0), cam.Project(b.x, b.y, z0), cam.Project(b.x, b.y, z1), cam.Project(a.x, a.y, z1) };
+            dl.AddConvexPolyFilled(q, 4, color.Shade(lit));
+            dl.AddLine(q[3], q[2], color.Shade(1.35f), 1.5f * sc_);
         }
-        Vec2 T[4], I[4]; float k = 1 - 8.f / m::Min(w, d);
+        NkVec2f T[4], I[4]; float k = 1 - 8.f / NkMin(w, d);
         for (int i = 0; i < 4; ++i) {
             T[i] = cam.Project(c[i].x, c[i].y, z1);
             I[i] = cam.Project(x + (c[i].x - x) * k, y + (c[i].y - y) * k, z1);
         }
-        p.FillPolygon(T, 4, Shade(color, 1.30f));
-        p.FillPolygon(I, 4, Shade(color, 1.12f));
+        dl.AddConvexPolyFilled(T, 4, color.Shade(1.30f));
+        dl.AddConvexPolyFilled(I, 4, color.Shade(1.12f));
         if (showText && sc_ > 0.6f) {
-            char buf[16]; if (mystery) { buf[0] = '?'; buf[1] = 0; } else IntToStr(value, buf);
-            Vec2 t = cam.Project(x, y, z1);
-            p.DrawText({t.x + 1, t.y + 2}, buf, 22 * sc_, {0, 0, 0, 90});
-            p.DrawText(t, buf, 22 * sc_, {255, 255, 255, 255});
+            NkString s = mystery ? NkString("?") : NkFormat("{0}", value);
+            NkVec2f t = cam.Project(x, y, z1);
+            GameText(dl, t.x + 1, t.y + 2, 22 * sc_, s.CStr(), NkColor(0, 0, 0, 90), false);
+            GameText(dl, t.x, t.y, 22 * sc_, s.CStr(), NkColor(255, 255, 255, 255), false);
         }
     }
 
 private:
-    Vec2 Corner(int i) const {
+    NkVec2f Corner(int i) const {
         static const float sx[4] = {-1, 1, 1, -1}, sy[4] = {-1, -1, 1, 1};
-        float lx = sx[i] * w * sc_ * .5f, ly = sy[i] * d * sc_ * .5f, cs = m::Cos(yaw), sn = m::Sin(yaw);
-        return { x + lx * cs - ly * sn, y + lx * sn + ly * cs };
-    }
-    static int Hull(Vec2* P, int n, Vec2* out) {
-        for (int i = 1; i < n; ++i) { Vec2 v = P[i]; int j = i - 1;           // tri par insertion
-            while (j >= 0 && (P[j].x > v.x || (P[j].x == v.x && P[j].y > v.y))) { P[j + 1] = P[j]; --j; } P[j + 1] = v; }
-        auto cr = [](Vec2 o, Vec2 a, Vec2 b) { return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x); };
-        Vec2 H[16]; int k = 0;
-        for (int i = 0; i < n; ++i) { while (k >= 2 && cr(H[k-2], H[k-1], P[i]) <= 0) --k; H[k++] = P[i]; }
-        for (int i = n - 2, t = k + 1; i >= 0; --i) { while (k >= t && cr(H[k-2], H[k-1], P[i]) <= 0) --k; H[k++] = P[i]; }
-        for (int i = 0; i < k - 1; ++i) out[i] = H[i];
-        return k - 1;
+        float lx = sx[i] * w * sc_ * .5f, ly = sy[i] * d * sc_ * .5f, cs = NkCos(yaw), sn = NkSin(yaw);
+        return NkVec2f(x + lx * cs - ly * sn, y + lx * sn + ly * cs);
     }
     float tx_ = 0, ty_ = 0, hop_ = 0, squash_ = 0, vel_ = 0, yawT_ = 0, sc_ = 1, scT_ = 1;
     bool  moving_ = false;
@@ -251,20 +247,26 @@ private:
 // =============================================================================
 //  ANT : fourmi procédurale, steering, évitement, ramasse/porte/dépose un Box
 // =============================================================================
+// Déplacement par « steering » (Reynolds, 1999) : à chaque pas, la fourmi calcule la direction voulue (vers le
+// prochain point de passage), tourne vers elle à vitesse angulaire bornée (8 rad/s) et avance à une vitesse
+// réduite quand elle est mal alignée : v = vitesse * max(0.2, cos(écart d'angle)). Évitement : lors d'une
+// collision la scène appelle Nudge, qui ajoute un vecteur tangent à l'obstacle (côté de la cible). Impasse :
+// si la fourmi progresse de moins de 8 % de sa vitesse sur 0.5 s, elle exécute une manoeuvre de dégagement.
 class Ant : public Entity {
 public:
-    Col   color{225, 40, 60, 255};
+    NkColor color{225, 40, 60, 255};
     float speed = 70, heading = 0, scale = 1.0f;
     int   colorIdx = -1, task = -1, owner = -1;      // jeu : couleur de la fourmi / cellule visée
     float arriveRadius = 3;              // distance à laquelle la cible est considérée atteinte
     bool  eatOnArrive = false;           // détruit le bloc porté à l'arrivée (jeu)
     int   legPairs = 3;                  // 3 = fourmi (6 pattes) ; 4 = 8 pattes
 
-    Ant() { kind = KIND_ANT; rng_ = (unsigned)((size_t)this >> 4) * 2654435761u | 1u; }
+    // Graine : l'adresse de l'objet (chaque fourmi a sa suite, rejouable avec Seed)
+    Ant() { kind = KIND_ANT; rng_.Seed((uint32)((usize)this >> 4) * 2654435761u | 1u); }
     float Radius() const { return 8.f * scale; }
     void SetTarget(float tx, float ty) { tx_ = tx; ty_ = ty; hasTarget_ = true; nwp_ = iwp_ = 0; }
     // Chemin : points de passage puis cible finale (calculé par Board::FindPath*)
-    void SetPath(const Vec2* p, int n, float fx, float fy) {
+    void SetPath(const NkVec2f* p, int n, float fx, float fy) {
         nwp_ = n > 40 ? 40 : n; for (int i = 0; i < nwp_; ++i) wp_[i] = p[i];
         iwp_ = 0; tx_ = fx; ty_ = fy; hasTarget_ = true;
     }
@@ -292,38 +294,38 @@ public:
             if (!box_ || box_->carried) { state_ = 0; box_ = nullptr; hasTarget_ = false; }
             else {
                 float cx, cy; box_->Closest(x, y, cx, cy);
-                if (m::Hypot(cx - x, cy - y) <= Radius() + 3.f) {
+                if (NkVec2f(cx - x, cy - y).Len() <= Radius() + 3.f) {
                     box_->SetCarried(true); box_->carrier = this; state_ = 2; SetTarget(dropX_, dropY_); ResetStuck();
                 } else SetTarget(box_->x, box_->y);
             }
         } else if (state_ == 2 && !hasTarget_) {
             if (eatOnArrive) { box_->SetCarried(false); box_->dead = true; box_ = nullptr; state_ = 0; ResetStuck(); }
             else {
-                float fx = m::Cos(heading), fy = m::Sin(heading);
+                float fx = NkCos(heading), fy = NkSin(heading);
                 box_->SetCarried(false); box_->x = x + fx * 30 * scale; box_->y = y + fy * 30 * scale; box_->SetYaw(heading);
                 box_ = nullptr; state_ = 0;
             }
         }
         if (hasTarget_) {
-            while (iwp_ < nwp_ && m::Hypot(wp_[iwp_].x - x, wp_[iwp_].y - y) < 7.f) ++iwp_;
-            float fd = m::Hypot(tx_ - x, ty_ - y);
+            while (iwp_ < nwp_ && NkVec2f(wp_[iwp_].x - x, wp_[iwp_].y - y).Len() < 7.f) ++iwp_;
+            float fd = NkVec2f(tx_ - x, ty_ - y).Len();
             if (iwp_ >= nwp_ && fd < arriveRadius) { hasTarget_ = false; stuckAcc_ = 0; }
             else {
                 float gx = iwp_ < nwp_ ? wp_[iwp_].x : tx_, gy = iwp_ < nwp_ ? wp_[iwp_].y : ty_;
-                float dx = gx - x, dy = gy - y, dist = m::Max(1e-3f, m::Hypot(dx, dy));
+                float dx = gx - x, dy = gy - y, dist = NkMax(1e-3f, NkVec2f(dx, dy).Len());
                 // Détection d'impasse : peu de progrès sur 0.5 s -> manoeuvre de dégagement (latérale + recul)
                 stuckAcc_ += dt;
                 if (stuckAcc_ >= 0.5f) {
-                    if (esc_ <= 0 && m::Hypot(x - sx_, y - sy_) < speed * 0.08f) { esc_ = 0.9f; escSign_ = (Rnd() & 1) ? 1.f : -1.f; ++stuck_; }
+                    if (esc_ <= 0 && NkVec2f(x - sx_, y - sy_).Len() < speed * 0.08f) { esc_ = 0.9f; escSign_ = rng_.NextUInt32(2) ? 1.f : -1.f; ++stuck_; }
                     sx_ = x; sy_ = y; stuckAcc_ = 0;
                 }
                 float vx = dx / dist, vy = dy / dist;
                 if (esc_ > 0) { esc_ -= dt; float ex = -vy * escSign_ - vx * 0.35f, ey = vx * escSign_ - vy * 0.35f; vx = ex; vy = ey; }
                 else if (avT_ > 0) { float k = 1.6f * (avT_ / 0.4f); vx += avX_ * k; vy += avY_ * k; avT_ -= dt; }
-                float diff = m::Wrap(m::Atan2(vy, vx) - heading);
-                heading = m::Wrap(heading + m::Clamp(diff, -8 * dt, 8 * dt));
-                float v = speed * m::Max(0.2f, m::Cos(diff));
-                x += m::Cos(heading) * v * dt; y += m::Sin(heading) * v * dt;
+                float diff = NkAngle::FromRad(NkAtan2(vy, vx) - heading).Rad();
+                heading = NkAngle::FromRad(heading + NkClamp(diff, -8 * dt, 8 * dt)).Rad();
+                float v = speed * NkMax(0.2f, NkCos(diff));
+                x += NkCos(heading) * v * dt; y += NkSin(heading) * v * dt;
                 phase_ += v * dt * 0.28f;
             }
         } else stuckAcc_ = 0;
@@ -331,25 +333,25 @@ public:
     }
     void LateUpdate() override {                                              // le bloc suit APRÈS les collisions
         if (state_ == 2 && box_) {
-            box_->x = x + m::Cos(heading) * scale; box_->y = y + m::Sin(heading) * scale;
+            box_->x = x + NkCos(heading) * scale; box_->y = y + NkSin(heading) * scale;
             box_->lift = 14.f * scale; box_->SetYaw(heading);
         }
     }
 
-    void DrawShadow(IPainter& p, const Camera& cam) const override {
-        float s = scale, fx = m::Cos(heading), fy = m::Sin(heading);
+    void DrawShadow(Dl& dl, const Camera& cam) const override {
+        float s = scale, fx = NkCos(heading), fy = NkSin(heading);
         const float off[2] = {-6.5f, 5.5f}, rad[2] = {7.5f, 8.5f};
         for (int i = 0; i < 2; ++i) {
-            Vec2 c = cam.ShadowPos(x + fx * off[i] * s, y + fy * off[i] * s, 6 * s);
-            p.FillEllipse(c, rad[i] * s, rad[i] * s * cam.tilt * 1.1f, {0, 0, 0, 55});
+            NkVec2f c = cam.ShadowPos(x + fx * off[i] * s, y + fy * off[i] * s, 6 * s);
+            dl.AddEllipseFilled(c, rad[i] * s, rad[i] * s * cam.tilt * 1.1f, NkColor(0, 0, 0, 55));
         }
     }
 
     // Style "chibi" : grosse tête + abdomen, oreilles-antennes épaisses, pattes courtes, gros yeux.
     void Emit(RenderQueue& q, const Camera& cam) const override {
-        const float s = scale, fx = m::Cos(heading), fy = m::Sin(heading), px = -fy, py = fx;
-        const float zb = 6.f * s + m::Sin(phase_ * 2) * 0.5f * s;
-        const Col leg = Shade(color, 0.82f), hi = Shade(color, 1.35f);
+        const float s = scale, fx = NkCos(heading), fy = NkSin(heading), px = -fy, py = fx;
+        const float zb = 6.f * s + NkSin(phase_ * 2) * 0.5f * s;
+        const NkColor leg = color.Shade(0.82f), hi = color.Shade(1.35f);
 
         // Corps : abdomen, petite taille (cache la jonction), grosse tête — profondeur = centre de la sphère
         const float hOff = 5.5f * s, hR = 8.5f * s, hZ = zb + s;
@@ -361,33 +363,34 @@ public:
         const float hx = x + fx * hOff, hy = y + fy * hOff;
         const float headDepth = cam.Depth(0, hy, hZ);
 
-        // Pattes courtes et épaisses, même couleur que le corps, attachées à la taille (3 paires)
+        // Pattes courtes et épaisses, même couleur que le corps, attachées à la taille (3 paires).
+        // Marche en tripode : les pattes d'un côté sont en opposition de phase avec celles de l'autre (+ PI).
         const int n = legPairs < 3 ? 3 : (legPairs > 4 ? 4 : legPairs);
         for (int side = -1; side <= 1; side += 2)
             for (int i = 0; i < n; ++i) {
                 float u = i - (n - 1) * .5f, un = u / ((n - 1) * .5f);          // -1 arrière .. +1 avant
                 float along = (u * 3.4f - 1.f) * s;
-                float ph = phase_ + i * 2.09f + (side > 0 ? PI : 0);
-                float stride = m::Sin(ph) * 2.2f * s, lf = m::Max(0.f, m::Cos(ph)) * 2.5f * s;
+                float ph = phase_ + i * 2.09f + (side > 0 ? NK_PI_F : 0);
+                float stride = NkSin(ph) * 2.2f * s, lf = NkMax(0.f, NkCos(ph)) * 2.5f * s;
                 float x0 = x + fx * along, y0 = y + fy * along;
                 float reach = (11.5f - 1.5f * (un < 0 ? -un : un)) * s;
                 float ex = x0 + px * side * reach + fx * (un * 4.f * s + stride);
                 float ey = y0 + py * side * reach + fy * (un * 4.f * s + stride);
                 float kx = x0 + px * side * reach * .55f + fx * (un * 1.5f * s + stride * .5f);
                 float ky = y0 + py * side * reach * .55f + fy * (un * 1.5f * s + stride * .5f);
-                Vec2 A = cam.Project(x0, y0, zb - 1.5f * s), K = cam.Project(kx, ky, zb + 1.5f * s + lf), F = cam.Project(ex, ey, lf);
+                NkVec2f A = cam.Project(x0, y0, zb - 1.5f * s), K = cam.Project(kx, ky, zb + 1.5f * s + lf), F = cam.Project(ex, ey, lf);
                 float dp = cam.Depth(0, (y0 + ky + ey) / 3.f, zb - 2.f * s);    // côté lointain derrière, proche devant
                 q.Taper(dp, A, K, 3.4f * s, 2.8f * s, leg);
                 q.Taper(dp, K, F, 2.8f * s, 1.2f * s, leg);
-                q.Ellipse(dp, F, 1.1f * s, 1.1f * s * cam.tilt + .2f * s, Shade(color, 0.7f));
+                q.Ellipse(dp, F, 1.1f * s, 1.1f * s * cam.tilt + .2f * s, color.Shade(0.7f));
             }
 
         // Antennes = grosses "oreilles" effilées avec reflet, posées sur le dessus de la tête (toujours devant la tête)
-        float sway = m::Sin(t_ * 5) * 0.8f * s;
+        float sway = NkSin(t_ * 5) * 0.8f * s;
         for (int side = -1; side <= 1; side += 2) {
             float bx = hx + px * side * 4.2f * s, by = hy + py * side * 4.2f * s, bz = hZ + 6.0f * s;
             float tx = bx + (fx * 2.0f + px * side * 5.0f) * s + px * side * sway, ty = by + (fy * 2.0f + py * side * 5.0f) * s + py * side * sway;
-            Vec2 B = cam.Project(bx, by, bz), T = cam.Project(tx, ty, bz + 5.5f * s);
+            NkVec2f B = cam.Project(bx, by, bz), T = cam.Project(tx, ty, bz + 5.5f * s);
             float dp = headDepth + hR * 1.1f;
             q.Taper(dp, B, T, 3.6f * s, 2.0f * s, leg);
             q.Ellipse(dp, T, 1.0f * s, 1.0f * s, leg);
@@ -395,23 +398,23 @@ public:
         }
 
         // Yeux : grands, blancs, pupille vers l'avant, paupière sombre inclinée (regard déterminé), toujours visibles
-        Vec2 hc = cam.Project(hx, hy, hZ);
+        NkVec2f hc = cam.Project(hx, hy, hZ);
         for (int side = -1; side <= 1; side += 2) {
-            Vec2 e = cam.Project(hx + (fx * 4.4f + px * side * 4.6f) * s, hy + (fy * 4.4f + py * side * 4.6f) * s, hZ + 5.2f * s);
-            Vec2 pu = cam.Project(hx + (fx * 5.6f + px * side * 4.6f) * s, hy + (fy * 5.6f + py * side * 4.6f) * s, hZ + 5.2f * s);
+            NkVec2f e = cam.Project(hx + (fx * 4.4f + px * side * 4.6f) * s, hy + (fy * 4.4f + py * side * 4.6f) * s, hZ + 5.2f * s);
+            NkVec2f pu = cam.Project(hx + (fx * 5.6f + px * side * 4.6f) * s, hy + (fy * 5.6f + py * side * 4.6f) * s, hZ + 5.2f * s);
             float dir = hc.x > e.x ? 1.f : -1.f;                             // vers le centre de la tête (écran)
             float dp = headDepth + hR * 0.95f;
-            q.Ellipse(dp, e, 2.7f * s, 2.9f * s, {255, 255, 255, 255});
-            q.Ellipse(dp + 0.01f, {e.x + (pu.x - e.x) * .7f, e.y + (pu.y - e.y) * .7f + .3f * s}, 1.4f * s, 1.6f * s, {25, 15, 20, 255});
-            q.Line(dp + 0.02f, {e.x + dir * 3.f * s, e.y - 1.9f * s}, {e.x - dir * 3.f * s, e.y - 3.0f * s}, 1.3f * s, {55, 15, 30, 255});
+            q.Ellipse(dp, e, 2.7f * s, 2.9f * s, NkColor(255, 255, 255, 255));
+            q.Ellipse(dp + 0.01f, NkVec2f(e.x + (pu.x - e.x) * .7f, e.y + (pu.y - e.y) * .7f + .3f * s), 1.4f * s, 1.6f * s, NkColor(25, 15, 20, 255));
+            q.Line(dp + 0.02f, NkVec2f(e.x + dir * 3.f * s, e.y - 1.9f * s), NkVec2f(e.x - dir * 3.f * s, e.y - 3.0f * s), 1.3f * s, NkColor(55, 15, 30, 255));
         }
     }
 
 private:
-    unsigned Rnd() { rng_ = rng_ * 1664525u + 1013904223u; return rng_ >> 16; }
+    NkLcg32 rng_;
     float tx_ = 0, ty_ = 0, phase_ = 0, t_ = 0, dropX_ = 0, dropY_ = 0, avX_ = 0, avY_ = 0, avT_ = 0;
-    Vec2 wp_[40]; int nwp_ = 0, iwp_ = 0;
-    float stuckAcc_ = 0, sx_ = 0, sy_ = 0, esc_ = 0, escSign_ = 1; int stuck_ = 0; unsigned rng_ = 1;
+    NkVec2f wp_[40]; int nwp_ = 0, iwp_ = 0;
+    float stuckAcc_ = 0, sx_ = 0, sy_ = 0, esc_ = 0, escSign_ = 1; int stuck_ = 0;
     bool  hasTarget_ = false; int state_ = 0;      // 0 libre, 1 va chercher, 2 porte
     Box*  box_ = nullptr;
 };
@@ -419,66 +422,74 @@ private:
 // =============================================================================
 //  SCENE : update, collisions, z-order global par pièce (tri fusion stable)
 // =============================================================================
+// La scène POSSÈDE ses entités : un NkVector<NkUniquePtr<Entity>>. Chaque entité est créée par NkMakeUnique<T>()
+// puis rangée sous son type de base (conversion NkUniquePtr<T> -> NkUniquePtr<Entity>, qui exige un destructeur
+// virtuel : voir Entity). La destruction est automatique, et unique, à la sortie de la scène ou au retrait des
+// entités mortes.
 class Scene {
 public:
     Camera camera;
-    enum { MAX_CMDS = 16384 };
-    Scene() { cmds_ = new DrawCmd[MAX_CMDS]; tmp_ = new DrawCmd[MAX_CMDS]; }
-    ~Scene() { for (int i = 0; i < items_.Size(); ++i) delete items_[i]; delete[] cmds_; delete[] tmp_; }
-    Scene(const Scene&) = delete; Scene& operator=(const Scene&) = delete;
 
-    template <class T> T* Add() { T* e = new T(); items_.PushBack(e); return e; }
+    template <class T> T* Add() {
+        NkUniquePtr<T> p = NkMakeUnique<T>();
+        T* raw = p.Get();
+        items_.PushBack(NkUniquePtr<Entity>(static_cast<NkUniquePtr<T>&&>(p)));
+        return raw;
+    }
 
     void Update(float dt) {
-        for (int i = 0; i < items_.Size(); ++i) items_[i]->Update(dt);
+        for (usize i = 0; i < items_.Size(); ++i) items_[i]->Update(dt);
         Resolve();
-        for (int i = 0; i < items_.Size(); ++i) items_[i]->LateUpdate();
+        for (usize i = 0; i < items_.Size(); ++i) items_[i]->LateUpdate();
         RemoveDead();
     }
 
-    void Render(IPainter& p) {
-        for (int i = 0; i < items_.Size(); ++i) items_[i]->DrawShadow(p, camera);
-        RenderQueue q{cmds_, 0, MAX_CMDS};
-        for (int i = 0; i < items_.Size(); ++i) items_[i]->Emit(q, camera);
-        Sort(q.n);
-        for (int i = 0; i < q.n; ++i) {
+    void Render(Dl& dl) {
+        for (usize i = 0; i < items_.Size(); ++i) items_[i]->DrawShadow(dl, camera);
+        cmds_.Clear();
+        RenderQueue q{cmds_};
+        for (usize i = 0; i < items_.Size(); ++i) items_[i]->Emit(q, camera);
+        // Tri fusion STABLE par profondeur croissante : du plus loin au plus près.
+        NkStableSort(cmds_.Data(), cmds_.Data() + cmds_.Size(), [](const DrawCmd& a, const DrawCmd& b) { return a.depth < b.depth; });
+        for (usize i = 0; i < cmds_.Size(); ++i) {
             const DrawCmd& c = cmds_[i];
             switch (c.kind) {
-                case CMD_LINE:    p.DrawLine(c.p0, c.p1, c.a, c.col); break;
-                case CMD_TAPER:   DrawTaper(p, c.p0, c.p1, c.a, c.b, c.col); break;
-                case CMD_ELLIPSE: p.FillEllipse(c.p0, c.a, c.b, c.col); break;
-                case CMD_SPHERE:  DrawSphere(p, camera, c.p0.x, c.p0.y, c.a, c.b, c.col); break;
-                case CMD_CUSTOM:  static_cast<const ICustomDraw*>(c.ptr)->DrawPiece(p, camera, (int)c.a); break;
-                case CMD_BOX:     static_cast<const Box*>(c.ptr)->DrawBody(p, camera); break;
+                case CMD_LINE:    dl.AddLine(c.p0, c.p1, c.col, c.a); break;
+                case CMD_TAPER:   dl.AddTaperedLine(c.p0, c.p1, c.col, c.a, c.b); break;
+                case CMD_ELLIPSE: dl.AddEllipseFilled(c.p0, c.a, c.b, c.col); break;
+                case CMD_SPHERE:  DrawSphere(dl, camera, c.p0.x, c.p0.y, c.a, c.b, c.col); break;
+                case CMD_CUSTOM:  static_cast<const ICustomDraw*>(c.ptr)->DrawPiece(dl, camera, (int)c.a); break;
+                case CMD_BOX:     static_cast<const Box*>(c.ptr)->DrawBody(dl, camera); break;
             }
         }
     }
 
 private:
     void RemoveDead() {
-        int n = items_.Size(), dead = 0;
-        for (int i = 0; i < n; ++i) if (items_[i]->dead) ++dead;
+        usize dead = 0;
+        for (usize i = 0; i < items_.Size(); ++i) if (items_[i]->dead) ++dead;
         if (!dead) return;
-        Entity** live = new Entity*[n]; int k = 0;
-        for (int i = 0; i < n; ++i) { if (items_[i]->dead) delete items_[i]; else live[k++] = items_[i]; }
-        items_.Clear(); for (int i = 0; i < k; ++i) items_.PushBack(live[i]);
-        delete[] live;
+        NkVector<NkUniquePtr<Entity>> live;
+        for (usize i = 0; i < items_.Size(); ++i) {
+            if (!items_[i]->dead) live.PushBack(static_cast<NkUniquePtr<Entity>&&>(items_[i]));
+        }                                                                   // les morts sont détruits avec items_
+        items_ = static_cast<NkVector<NkUniquePtr<Entity>>&&>(live);
     }
     void Resolve() {
-        int n = items_.Size();
-        for (int i = 0; i < n; ++i) {
-            Entity* a = items_[i]; if (a->kind != KIND_ANT) continue;
+        usize n = items_.Size();
+        for (usize i = 0; i < n; ++i) {
+            Entity* a = items_[i].Get(); if (a->kind != KIND_ANT) continue;
             Ant* A = static_cast<Ant*>(a);
-            for (int j = 0; j < n; ++j) {                                     // obstacles génériques (plateau)
-                Entity* o = items_[j];
+            for (usize j = 0; j < n; ++j) {                                   // obstacles génériques (plateau)
+                Entity* o = items_[j].Get();
                 if (o->kind == KIND_BOARD) { float nx, ny; if (o->ResolveCircle(A->x, A->y, A->Radius(), nx, ny)) A->Nudge(nx, ny); }
             }
-            for (int j = 0; j < n; ++j) {
-                Entity* b = items_[j]; if (b == a || b->kind > KIND_BOX) continue;
+            for (usize j = 0; j < n; ++j) {
+                Entity* b = items_[j].Get(); if (b == a || b->kind > KIND_BOX) continue;
                 if (b->kind == KIND_ANT) {                                     // fourmi / fourmi (traité une fois)
                     if (j < i) continue;
                     Ant* B = static_cast<Ant*>(b);
-                    float dx = B->x - A->x, dy = B->y - A->y, d = m::Hypot(dx, dy), md = A->Radius() + B->Radius();
+                    float dx = B->x - A->x, dy = B->y - A->y, d = NkVec2f(dx, dy).Len(), md = A->Radius() + B->Radius();
                     if (d < md && d > 1e-4f) {
                         float nx = dx / d, ny = dy / d, pu = (md - d) * .5f;
                         A->x -= nx * pu; A->y -= ny * pu; B->x += nx * pu; B->y += ny * pu;
@@ -487,32 +498,19 @@ private:
                 } else {                                                       // fourmi / boîte (non portée)
                     Box* B = static_cast<Box*>(b); if (B->carried) continue;
                     float cx, cy; B->Closest(A->x, A->y, cx, cy);
-                    float dx = A->x - cx, dy = A->y - cy, d = m::Hypot(dx, dy), r = A->Radius();
+                    float dx = A->x - cx, dy = A->y - cy, d = NkVec2f(dx, dy).Len(), r = A->Radius();
                     if (d < r) {
                         float nx, ny;
                         if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
-                        else { float ex = A->x - B->x, ey = A->y - B->y, el = m::Max(1e-4f, m::Hypot(ex, ey)); nx = ex / el; ny = ey / el; }
+                        else { float ex = A->x - B->x, ey = A->y - B->y, el = NkMax(1e-4f, NkVec2f(ex, ey).Len()); nx = ex / el; ny = ey / el; }
                         A->x += nx * (r - d); A->y += ny * (r - d); A->Nudge(nx, ny);
                     }
                 }
             }
         }
     }
-    void Sort(int n) {                                                         // tri fusion ascendant, stable
-        DrawCmd* src = cmds_; DrawCmd* dst = tmp_;
-        for (int w = 1; w < n; w *= 2) {
-            for (int lo = 0; lo < n; lo += 2 * w) {
-                int mid = m::Min(lo + w, n), hi = m::Min(lo + 2 * w, n), i = lo, j = mid, k = lo;
-                while (i < mid && j < hi) dst[k++] = (src[j].depth < src[i].depth) ? src[j++] : src[i++];
-                while (i < mid) dst[k++] = src[i++];
-                while (j < hi)  dst[k++] = src[j++];
-            }
-            DrawCmd* t = src; src = dst; dst = t;
-        }
-        if (src != cmds_) for (int i = 0; i < n; ++i) cmds_[i] = src[i];
-    }
-    Array<Entity*> items_;
-    DrawCmd *cmds_, *tmp_;
+    NkVector<NkUniquePtr<Entity>> items_;
+    NkVector<DrawCmd> cmds_;
 };
 
 } // namespace nk25d

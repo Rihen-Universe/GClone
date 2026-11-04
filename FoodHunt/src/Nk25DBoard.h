@@ -1,7 +1,12 @@
-// Nk25DBoard.hpp — Plateau de jeu : image -> blocs de pixels 2.5D, palette, fourmis par couleur.
-// Sans STL. L'image arrive en RGBA brut (const unsigned char*, w, h) : à fournir depuis NkImage.
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Nk25DBoard.h — Plateau de jeu : image -> blocs de pixels 2.5D, palette, fourmis par couleur.
+// Migré le 04/11/2026 : l'image arrive en NkImage (NKImage), la réduction par NK_AREA, la palette par k-means
+// (NkImagePalette::Quantize), les chemins par NkGridPath (NKNavigation). Aucune bibliothèque standard.
 #pragma once
 #include "Nk25D.h"
+#include "NKImage/Core/NkImage.h"
+#include "NKImage/Core/NkImagePalette.h"
+#include "NKNavigation/NkGridPath.h"
 
 namespace nk25d {
 
@@ -11,39 +16,49 @@ constexpr unsigned char EMPTY = 255;
 // =============================================================================
 //  Board : grille de cubes ; seuls les blocs "exposés" (un voisin vide) sont prenables
 // =============================================================================
+// Chaque case contient l'indice de sa couleur dans la palette, ou EMPTY. La grille est un graphe : les cases
+// vides sont les noeuds libres, reliés à leurs 4 voisines. Un bloc est « accessible » si une de ses voisines est
+// une case vide reliée au bord (remplissage par diffusion depuis l'extérieur) : les poches fermées au milieu du
+// dessin (un oeil retiré, par exemple) ne comptent pas, car aucune fourmi ne peut y entrer.
 class Board : public Entity, public ICustomDraw {
 public:
     int   gw = 0, gh = 0;                 // taille de la grille
     float cs = 11, ch = 8;                // taille d'une cellule / hauteur d'un cube (px)
     float ox = 0, oy = 0;                 // coin haut-gauche du plateau (monde)
-    Col   palette[MAX_PAL]; int np = 0;
+    NkColor palette[MAX_PAL]; int np = 0;
 
     Board() { kind = KIND_BOARD; }
-    ~Board() { delete[] c_; delete[] cool_; delete[] acc_; }
 
     // ---- Image -> grille ------------------------------------------------------
     // gridW : nombre de blocs en largeur ; maxColors : taille de palette (k-means) ;
-    // autoBg : retire le fond (couleur des coins, connecté aux bords). Alpha < 128 = vide.
-    bool LoadFromRGBA(const unsigned char* px, int w, int h, int gridW, int maxColors, bool autoBg = false) {
-        if (!px || w <= 0 || h <= 0 || gridW <= 0) return false;
-        delete[] c_; delete[] cool_; delete[] acc_; acc_ = nullptr;
-        gw = gridW; gh = m::Max(1, (int)(h * (float)gridW / w + 0.5f));
-        int n = gw * gh; c_ = new unsigned char[n]; cool_ = new float[n];
-        float* avg = new float[n * 3]; bool* op = new bool[n];
-        for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {   // moyenne par cellule (pondérée alpha)
-            int x0 = cx * w / gw, x1 = m::Max(x0 + 1, (cx + 1) * w / gw), y0 = cy * h / gh, y1 = m::Max(y0 + 1, (cy + 1) * h / gh);
-            float r = 0, g = 0, b = 0, aw = 0; int cnt = 0;
-            for (int y = y0; y < y1 && y < h; ++y) for (int x = x0; x < x1 && x < w; ++x) {
-                const unsigned char* p = px + (y * w + x) * 4; float a = p[3] / 255.f;
-                r += p[0] * a; g += p[1] * a; b += p[2] * a; aw += a; ++cnt;
-            }
-            int i = cy * gw + cx; op[i] = cnt > 0 && aw / cnt >= 0.5f;
-            if (aw > 0) { avg[i*3] = r / aw; avg[i*3+1] = g / aw; avg[i*3+2] = b / aw; } else avg[i*3] = avg[i*3+1] = avg[i*3+2] = 0;
+    // autoBg : retire le fond (couleur du pourtour, relié aux bords). Alpha < 128 = vide.
+    // 1. Réduction : NkImage::Resize(NK_AREA) fait la moyenne de chaque cellule pondérée par l'alpha.
+    // 2. Fond (facultatif) : NkImagePalette::EstimateBg puis RemoveBackground.
+    // 3. Quantification : k-means sur les couleurs des cellules opaques (NkImagePalette::Quantize).
+    bool LoadFromImage(const NkImage& src, int gridW, int maxColors, bool autoBg = false) {
+        if (!src.IsValid() || gridW <= 0) return false;
+        gw = gridW; gh = NkMax(1, (int)(src.Height() * (float)gridW / src.Width() + 0.5f));
+        NkImage rgba = (src.Format() == NkImagePixelFormat::NK_RGBA32) ? src.Copy() : src.Convert(NkImagePixelFormat::NK_RGBA32);
+        if (!rgba.IsValid()) return false;
+        NkImage cells = rgba.Resize(gw, gh, NkResizeFilter::NK_AREA);
+        if (!cells.IsValid()) return false;
+        if (autoBg) NkImagePalette::RemoveBackground(cells, NkImagePalette::EstimateBg(cells), 30);
+
+        NkImage quant; NkVector<NkColor> pal;
+        const int n = gw * gh;
+        c_.Resize(n); cool_.Resize(n); acc_.Clear();
+        for (int i = 0; i < n; ++i) { c_[i] = EMPTY; cool_[i] = 0; }
+        np = 0;
+        if (!NkImagePalette::Quantize(cells, NkClamp(maxColors, 1, (int)MAX_PAL), quant, &pal, 7u)) { time_ = 0; Recount(); return false; }
+        int remap[MAX_PAL]; for (int q = 0; q < MAX_PAL; ++q) remap[q] = -1;
+        for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {
+            const uint8* p = quant.RowPtr(cy) + cx * 4;
+            if (cells.RowPtr(cy)[cx * 4 + 3] < 128) continue;                     // case vide
+            int b = 0; for (usize q = 0; q < pal.Size(); ++q) if (pal[q].r == p[0] && pal[q].g == p[1] && pal[q].b == p[2]) { b = (int)q; break; }
+            if (remap[b] < 0) { remap[b] = np; palette[np++] = pal[b]; }          // palette compacte : couleurs réellement utilisées
+            c_[cy * gw + cx] = (uint8)remap[b];
         }
-        if (autoBg) RemoveBackground(avg, op);
-        Quantize(avg, op, m::Clamp(maxColors, 1, (int)MAX_PAL));
-        for (int i = 0; i < n; ++i) cool_[i] = 0;
-        delete[] avg; delete[] op; time_ = 0; Recount(); UpdateReach();
+        time_ = 0; Recount(); UpdateReach();
         return np > 0;
     }
 
@@ -74,183 +89,127 @@ public:
     }
     // ---- Accessibilité : un bloc est ciblable si l'une de ses 4 voisines est une cellule vide reliée à l'extérieur
     // (4-connexité à travers les cellules vides). Les poches fermées (yeux retirés...) ne comptent pas.
-    bool  Accessible(int i) const { return acc_ ? acc_[i] : Exposed(i); }
+    bool  Accessible(int i) const { return acc_.Size() ? acc_[i] != 0 : Exposed(i); }
     void  UpdateReach() {
         int n = gw * gh; if (!n) return;
-        if (!acc_) acc_ = new bool[n];
-        bool* reach = new bool[n]; int* st = new int[n + 8]; int sp = 0;
-        for (int i = 0; i < n; ++i) reach[i] = false;
-        for (int i = 0; i < n; ++i) { int x = i % gw, y = i / gw; if (c_[i] == EMPTY && (x == 0 || y == 0 || x == gw - 1 || y == gh - 1)) { reach[i] = true; st[sp++] = i; } }
+        acc_.Resize(n);
+        NkVector<uint8> reach; reach.Resize(n); NkVector<int> st;               // st : pile du remplissage
+        for (int i = 0; i < n; ++i) reach[i] = 0;
+        for (int i = 0; i < n; ++i) { int x = i % gw, y = i / gw; if (c_[i] == EMPTY && (x == 0 || y == 0 || x == gw - 1 || y == gh - 1)) { reach[i] = 1; st.PushBack(i); } }
         const int dx[4] = {-1, 1, 0, 0}, dy[4] = {0, 0, -1, 1};
-        while (sp > 0) {
-            int i = st[--sp], x = i % gw, y = i / gw;
+        while (st.Size() > 0) {
+            int i = st[st.Size() - 1]; st.PopBack(); int x = i % gw, y = i / gw;
             for (int k = 0; k < 4; ++k) { int nx = x + dx[k], ny = y + dy[k]; if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) continue;
-                int j = ny * gw + nx; if (c_[j] == EMPTY && !reach[j]) { reach[j] = true; st[sp++] = j; } }
+                int j = ny * gw + nx; if (c_[j] == EMPTY && !reach[j]) { reach[j] = 1; st.PushBack(j); } }
         }
         for (int i = 0; i < n; ++i) {
-            acc_[i] = false; if (c_[i] == EMPTY) continue; int x = i % gw, y = i / gw;
+            acc_[i] = 0; if (c_[i] == EMPTY) continue; int x = i % gw, y = i / gw;
             for (int k = 0; k < 4 && !acc_[i]; ++k) { int nx = x + dx[k], ny = y + dy[k];
-                if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) acc_[i] = true; else if (reach[ny * gw + nx]) acc_[i] = true; }
+                if (nx < 0 || ny < 0 || nx >= gw || ny >= gh) acc_[i] = 1; else if (reach[ny * gw + nx]) acc_[i] = 1; }
         }
-        delete[] reach; delete[] st;
     }
     // ---- Chemin (points de passage monde) jusqu'à une cellule d'accès du bloc `target`, ou jusqu'à un point.
-    // BFS sur la grille (zone libre = cellule vide + 4 voisines vides, marge libre autour), puis lissage par ligne de vue.
-    int FindPathToCell(float sx, float sy, int target, Vec2* out, int maxN) const { return Search(sx, sy, target, 0, 0, out, maxN); }
-    int FindPathToPoint(float sx, float sy, float tx, float ty, Vec2* out, int maxN) const { return Search(sx, sy, -1, tx, ty, out, maxN); }
+    int FindPathToCell(float sx, float sy, int target, NkVec2f* out, int maxN) const { return Search(sx, sy, target, 0, 0, out, maxN); }
+    int FindPathToPoint(float sx, float sy, float tx, float ty, NkVec2f* out, int maxN) const { return Search(sx, sy, -1, tx, ty, out, maxN); }
     bool  Present(int i, int color) const { return i >= 0 && i < gw * gh && c_[i] == color; }
     void  Cooldown(int i, float sec) { if (i >= 0 && i < gw * gh) cool_[i] = time_ + sec; }
     int   Take(int i) { int c = c_[i]; if (c != EMPTY) { c_[i] = EMPTY; --left_[c]; } return c; }   // retire un bloc
     void  ClosestOnCell(int i, float px, float py, float& qx, float& qy) const {
         float x0 = CellX(i) - cs * .5f, y0 = CellY(i) - cs * .5f;
-        qx = m::Clamp(px, x0, x0 + cs); qy = m::Clamp(py, y0, y0 + cs);
+        qx = NkClamp(px, x0, x0 + cs); qy = NkClamp(py, y0, y0 + cs);
     }
 
     // ---- Entity ---------------------------------------------------------------
     void Update(float dt) override { time_ += dt; }
 
+    // Collision cercle / cases pleines : pour chaque case voisine, on cherche le point de la case le plus proche
+    // du centre (borne du centre dans le carré) ; si la distance est inférieure au rayon, on repousse le cercle
+    // le long de la normale (centre - point) de la profondeur de pénétration (r - d).
     bool ResolveCircle(float& cx, float& cy, float r, float& nx, float& ny) override {
-        r = m::Min(r, cs * 0.42f);                                         // rayon de collision réduit : passe dans les rainures d'1 cellule
+        r = NkMin(r, cs * 0.42f);                                         // rayon de collision réduit : passe dans les rainures d'1 cellule
         bool hit = false;
         int ix0 = (int)((cx - r - ox) / cs) - 1, ix1 = (int)((cx + r - ox) / cs) + 1;
         int iy0 = (int)((cy - r - oy) / cs) - 1, iy1 = (int)((cy + r - oy) / cs) + 1;
         for (int pass = 0; pass < 2; ++pass)
-        for (int y = m::Max(iy0, 0); y <= iy1 && y < gh; ++y) for (int x = m::Max(ix0, 0); x <= ix1 && x < gw; ++x) {
+        for (int y = NkMax(iy0, 0); y <= iy1 && y < gh; ++y) for (int x = NkMax(ix0, 0); x <= ix1 && x < gw; ++x) {
             if (c_[y * gw + x] == EMPTY) continue;
             float qx, qy; ClosestOnCell(y * gw + x, cx, cy, qx, qy);
-            float dx = cx - qx, dy = cy - qy, d = m::Hypot(dx, dy);
+            float dx = cx - qx, dy = cy - qy, d = NkVec2f(dx, dy).Len();
             if (d >= r) continue;
             if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
-            else { float ex = cx - CellX(y * gw + x), ey = cy - CellY(y * gw + x), l = m::Max(1e-4f, m::Hypot(ex, ey)); nx = ex / l; ny = ey / l; d = 0; }
+            else { float ex = cx - CellX(y * gw + x), ey = cy - CellY(y * gw + x), l = NkMax(1e-4f, NkVec2f(ex, ey).Len()); nx = ex / l; ny = ey / l; d = 0; }
             cx += nx * (r - d); cy += ny * (r - d); hit = true;
         }
         return hit;
     }
 
-    void DrawShadow(IPainter& p, const Camera& cam) const override {   // ombre portée des cubes de bord
-        if (!c_) return;
+    void DrawShadow(Dl& dl, const Camera& cam) const override {   // ombre portée des cubes de bord
+        if (c_.Size() == 0) return;
         for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {
             if (c_[cy * gw + cx] == EMPTY) continue;
             if (At(cx + 1, cy) != EMPTY && At(cx, cy + 1) != EMPTY) continue;
             float x0 = ox + cx * cs, y0 = oy + cy * cs;
-            Vec2 q[4] = { cam.ShadowPos(x0, y0, ch), cam.ShadowPos(x0 + cs, y0, ch), cam.ShadowPos(x0 + cs, y0 + cs, ch), cam.ShadowPos(x0, y0 + cs, ch) };
-            p.FillPolygon(q, 4, {0, 0, 0, 45});
+            NkVec2f q[4] = { cam.ShadowPos(x0, y0, ch), cam.ShadowPos(x0 + cs, y0, ch), cam.ShadowPos(x0 + cs, y0 + cs, ch), cam.ShadowPos(x0, y0 + cs, ch) };
+            dl.AddConvexPolyFilled(q, 4, NkColor(0, 0, 0, 45));
         }
     }
 
     void Emit(RenderQueue& q, const Camera& cam) const override {
-        if (!c_) return;
+        if (c_.Size() == 0) return;
         for (int i = 0; i < gw * gh; ++i)
             if (c_[i] != EMPTY) q.Custom(cam.Depth(0, CellY(i), ch), static_cast<const ICustomDraw*>(this), i);
     }
 
     // Cube axis-aligned : dessus + face avant (les côtés sont de profil donc invisibles)
-    void DrawPiece(IPainter& p, const Camera& cam, int i) const override {
-        int cx = i % gw, cy = i / gw; Col col = palette[c_[i]];
+    void DrawPiece(Dl& dl, const Camera& cam, int i) const override {
+        int cx = i % gw, cy = i / gw; NkColor col = palette[c_[i]];
         float x0 = ox + cx * cs, y0 = oy + cy * cs, g = 0.3f;   // jeu en x seulement : pas de trait entre rangées
         if (At(cx, cy + 1) == EMPTY) {                                       // face avant visible seulement si rien devant
-            Vec2 F[4] = { cam.Project(x0 + g, y0 + cs, 0), cam.Project(x0 + cs - g, y0 + cs, 0),
+            NkVec2f F[4] = { cam.Project(x0 + g, y0 + cs, 0), cam.Project(x0 + cs - g, y0 + cs, 0),
                           cam.Project(x0 + cs - g, y0 + cs, ch), cam.Project(x0 + g, y0 + cs, ch) };
-            p.FillPolygon(F, 4, Shade(col, 0.72f));
+            dl.AddConvexPolyFilled(F, 4, col.Shade(0.72f));
         }
-        Vec2 T[4] = { cam.Project(x0 + g, y0, ch), cam.Project(x0 + cs - g, y0, ch),
+        NkVec2f T[4] = { cam.Project(x0 + g, y0, ch), cam.Project(x0 + cs - g, y0, ch),
                       cam.Project(x0 + cs - g, y0 + cs, ch), cam.Project(x0 + g, y0 + cs, ch) };
-        p.FillPolygon(T, 4, Shade(col, 1.08f));
+        dl.AddConvexPolyFilled(T, 4, col.Shade(1.08f));
         float b = cs * 0.2f;                                                 // biseau intérieur plus clair
-        Vec2 I[4] = { cam.Project(x0 + b, y0 + b, ch), cam.Project(x0 + cs - b, y0 + b, ch),
+        NkVec2f I[4] = { cam.Project(x0 + b, y0 + b, ch), cam.Project(x0 + cs - b, y0 + b, ch),
                       cam.Project(x0 + cs - b, y0 + cs - b, ch), cam.Project(x0 + b, y0 + cs - b, ch) };
-        p.FillPolygon(I, 4, Shade(col, 1.18f));
+        dl.AddConvexPolyFilled(I, 4, col.Shade(1.18f));
     }
 
 private:
-    int Search(float sx, float sy, int target, float tx, float ty, Vec2* out, int maxN) const {
-        const int M = 8, PW = gw + 2 * M, PH = gh + 2 * M, N = PW * PH;
-        bool* ok = new bool[N]; bool* goal = new bool[N]; int* par = new int[N]; int* q = new int[N];
-        for (int py = 0; py < PH; ++py) for (int px = 0; px < PW; ++px) {
-            int x = px - M, y = py - M, k = py * PW + px; goal[k] = false; par[k] = -2;
-            ok[k] = (x < 0 || y < 0 || x >= gw || y >= gh) ? true : (c_[y * gw + x] == EMPTY);
-        }
+    // Chemin : plus court chemin en nombre de cases (parcours en largeur, NkGridPath) puis lissage par ligne de vue.
+    // La grille est entourée d'une marge libre de M cases (les fourmis tournent autour du plateau). Les blocs
+    // sont les cases bloquées. Le but d'un bloc est l'une de ses 4 cases voisines libres : on essaie les quatre
+    // et on garde le plus court.
+    int Search(float sx, float sy, int target, float tx, float ty, NkVec2f* out, int maxN) const {
+        const int M = 8, PW = gw + 2 * M, PH = gh + 2 * M;
+        nav::NkGridPath grid; grid.Init(PW, PH);
+        for (int y = 0; y < gh; ++y) for (int x = 0; x < gw; ++x) if (c_[y * gw + x] != EMPTY) grid.SetBlocked(x + M, y + M, true);
         auto cellOf = [&](float wx, float wy, int& px, int& py) {
-            px = m::Clamp((int)((wx - ox) / cs + 1000.f) - 1000 + M, 0, PW - 1); py = m::Clamp((int)((wy - oy) / cs + 1000.f) - 1000 + M, 0, PH - 1); };
+            px = NkClamp((int)((wx - ox) / cs + 1000.f) - 1000 + M, 0, PW - 1); py = NkClamp((int)((wy - oy) / cs + 1000.f) - 1000 + M, 0, PH - 1); };
+        int spx, spy; cellOf(sx, sy, spx, spy); grid.SetBlocked(spx, spy, false);   // le départ est toujours libre
+        NkVector<nav::NkGridCell> path;
+        int gx = -1, gy = -1;
         if (target >= 0) {
             int x = target % gw, y = target / gw; const int D[4][2] = {{0,-1},{0,1},{-1,0},{1,0}};
+            usize bestLen = 0; NkVector<nav::NkGridCell> cur;
             for (int k = 0; k < 4; ++k) {
-                int gx = x + D[k][0] + M, gy = y + D[k][1] + M;
-                if (gx >= 0 && gy >= 0 && gx < PW && gy < PH && ok[gy * PW + gx]) goal[gy * PW + gx] = true;
+                int ax = x + D[k][0] + M, ay = y + D[k][1] + M;
+                if (grid.IsBlocked(ax, ay) || !grid.FindPath(spx, spy, ax, ay, cur, false)) continue;
+                if (gx < 0 || cur.Size() < bestLen) { bestLen = cur.Size(); gx = ax; gy = ay; }
             }
-        } else { int gx, gy; cellOf(tx, ty, gx, gy); ok[gy * PW + gx] = true; goal[gy * PW + gx] = true; }
-        int spx, spy; cellOf(sx, sy, spx, spy); int start = spy * PW + spx; ok[start] = true;
-        int qh = 0, qt = 0, found = -1; q[qt++] = start; par[start] = -1;
-        while (qh < qt) {
-            int cur = q[qh++]; if (goal[cur]) { found = cur; break; }
-            int cx = cur % PW, cy = cur / PW; const int dx4[4] = {1, -1, 0, 0}, dy4[4] = {0, 0, 1, -1};
-            for (int k = 0; k < 4; ++k) { int nx = cx + dx4[k], ny = cy + dy4[k]; if (nx < 0 || ny < 0 || nx >= PW || ny >= PH) continue;
-                int j = ny * PW + nx; if (par[j] != -2 || !ok[j]) continue; par[j] = cur; q[qt++] = j; }
-        }
+        } else { cellOf(tx, ty, gx, gy); grid.SetBlocked(gx, gy, false); }
+        if (gx < 0 || !grid.FindPath(spx, spy, gx, gy, path, true)) return 0;
         int cnt = 0;
-        if (found >= 0) {
-            int len = 0, cur = found; while (cur != -1 && len < N) { q[len++] = cur; cur = par[cur]; }      // q = chemin inversé
-            // lissage : garder le point le plus lointain en ligne de vue
-            auto cx = [&](int k) { return ox + ((k % PW) - M + .5f) * cs; }; auto cy = [&](int k) { return oy + ((k / PW) - M + .5f) * cs; };
-            auto los = [&](int a, int bq) { float x0 = cx(a), y0 = cy(a), x1 = cx(bq), y1 = cy(bq), d = m::Hypot(x1 - x0, y1 - y0); int st = (int)(d / (cs * .4f)) + 1;
-                for (int i = 1; i < st; ++i) { int px, py; cellOf(x0 + (x1 - x0) * i / st, y0 + (y1 - y0) * i / st, px, py); if (!ok[py * PW + px]) return false; } return true; };
-            if (cnt < maxN && len > 1) out[cnt++] = { cx(q[len - 1]), cy(q[len - 1]) };   // d'abord le centre de sa propre cellule (évite de couper un coin)
-            int i = len - 1;                                                    // q[len-1] = départ
-            while (i > 0 && cnt < maxN) {
-                int farv = i - 1; for (int j = 0; j < i; ++j) if (los(q[i], q[j])) { farv = j; break; }
-                out[cnt++] = { cx(q[farv]), cy(q[farv]) }; i = farv;
-            }
-        }
-        delete[] ok; delete[] goal; delete[] par; delete[] q;
+        for (usize i = 0; i < path.Size() && cnt < maxN; ++i)
+            out[cnt++] = NkVec2f(ox + ((path[i].x - M) + .5f) * cs, oy + ((path[i].y - M) + .5f) * cs);
         return cnt;
-    }
-    static float D2(const float* a, const float* b) { float x = a[0]-b[0], y = a[1]-b[1], z = a[2]-b[2]; return x*x + y*y + z*z; }
-
-    void RemoveBackground(const float* avg, bool* op) {                       // remplissage depuis les bords
-        int n = gw * gh; float bg[3] = {avg[0], avg[1], avg[2]};
-        int* st = new int[n]; int sp = 0; bool* seen = new bool[n]; for (int i = 0; i < n; ++i) seen[i] = false;
-        for (int x = 0; x < gw; ++x) { st[sp++] = x; st[sp++] = (gh - 1) * gw + x; if (sp + 2 >= n) break; }
-        for (int y = 0; y < gh && sp + 2 < n; ++y) { st[sp++] = y * gw; st[sp++] = y * gw + gw - 1; }
-        while (sp > 0) {
-            int i = st[--sp]; if (seen[i] || !op[i] || D2(avg + i * 3, bg) > 30.f * 30.f) continue;
-            seen[i] = true; op[i] = false; int cx = i % gw, cy = i / gw;
-            if (sp + 4 >= n * 2) continue;
-            if (cx > 0 && sp < n - 4) st[sp++] = i - 1; if (cx < gw - 1 && sp < n - 4) st[sp++] = i + 1;
-            if (cy > 0 && sp < n - 4) st[sp++] = i - gw; if (cy < gh - 1 && sp < n - 4) st[sp++] = i + gw;
-        }
-        delete[] st; delete[] seen;
-    }
-
-    void Quantize(const float* avg, const bool* op, int k) {                  // k-means (init : point le plus éloigné)
-        int n = gw * gh, cnt = 0; for (int i = 0; i < n; ++i) if (op[i]) ++cnt;
-        np = 0; for (int i = 0; i < n; ++i) c_[i] = EMPTY;
-        if (!cnt) return;
-        k = m::Min(k, cnt);
-        float cen[MAX_PAL][3]; int first = 0; while (!op[first]) ++first;
-        for (int j = 0; j < 3; ++j) cen[0][j] = avg[first * 3 + j];
-        for (int c = 1; c < k; ++c) {
-            float bd = -1; int bi = first;
-            for (int i = 0; i < n; ++i) { if (!op[i]) continue;
-                float md = 1e30f; for (int q = 0; q < c; ++q) md = m::Min(md, D2(avg + i * 3, cen[q]));
-                if (md > bd) { bd = md; bi = i; } }
-            for (int j = 0; j < 3; ++j) cen[c][j] = avg[bi * 3 + j];
-        }
-        for (int it = 0; it < 8; ++it) {
-            float sum[MAX_PAL][3] = {}; int num[MAX_PAL] = {};
-            for (int i = 0; i < n; ++i) { if (!op[i]) continue;
-                int b = 0; float bd = 1e30f; for (int q = 0; q < k; ++q) { float d = D2(avg + i * 3, cen[q]); if (d < bd) { bd = d; b = q; } }
-                for (int j = 0; j < 3; ++j) sum[b][j] += avg[i * 3 + j]; ++num[b]; }
-            for (int q = 0; q < k; ++q) if (num[q]) for (int j = 0; j < 3; ++j) cen[q][j] = sum[q][j] / num[q];
-        }
-        int remap[MAX_PAL]; for (int q = 0; q < MAX_PAL; ++q) remap[q] = -1;
-        for (int i = 0; i < n; ++i) { if (!op[i]) continue;
-            int b = 0; float bd = 1e30f; for (int q = 0; q < k; ++q) { float d = D2(avg + i * 3, cen[q]); if (d < bd) { bd = d; b = q; } }
-            if (remap[b] < 0) { remap[b] = np; palette[np++] = { (unsigned char)(cen[b][0] + .5f), (unsigned char)(cen[b][1] + .5f), (unsigned char)(cen[b][2] + .5f), 255 }; }
-            c_[i] = (unsigned char)remap[b]; }
     }
     void Recount() { for (int i = 0; i < MAX_PAL; ++i) left_[i] = 0; for (int i = 0; i < gw * gh; ++i) if (c_[i] != EMPTY) ++left_[c_[i]]; }
 
-    unsigned char* c_ = nullptr; float* cool_ = nullptr; bool* acc_ = nullptr; int left_[MAX_PAL] = {}; float time_ = 0;
+    NkVector<uint8> c_; NkVector<float> cool_; NkVector<uint8> acc_; int left_[MAX_PAL] = {}; float time_ = 0;
 };
 
 // =============================================================================
@@ -261,11 +220,11 @@ public:
     float rx = 22, ry = 14;
     Hole() { kind = KIND_HOLE; }
     void Update(float) override {}
-    void DrawShadow(IPainter& p, const Camera& cam) const override {
-        Vec2 c = cam.Project(x, y, 0);
-        p.FillEllipse({c.x, c.y + 1.5f}, rx + 3, ry + 3, {120, 80, 50, 255});
-        p.FillEllipse(c, rx, ry, {55, 35, 25, 255});
-        p.FillEllipse({c.x, c.y - 2}, rx * .7f, ry * .6f, {30, 18, 12, 255});
+    void DrawShadow(Dl& dl, const Camera& cam) const override {
+        NkVec2f c = cam.Project(x, y, 0);
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y + 1.5f), rx + 3, ry + 3, NkColor(120, 80, 50, 255));
+        dl.AddEllipseFilled(c, rx, ry, NkColor(55, 35, 25, 255));
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y - 2), rx * .7f, ry * .6f, NkColor(30, 18, 12, 255));
     }
     void Emit(RenderQueue&, const Camera&) const override {}
 };
@@ -292,7 +251,7 @@ public:
     void SpawnByShare(int total, float scale = 1.0f) {
         int all = board_->Remaining(); if (all <= 0) return;
         for (int c = 0; c < board_->np; ++c) {
-            int n = m::Max(1, (int)((float)total * board_->Remaining(c) / all + 0.5f));
+            int n = NkMax(1, (int)((float)total * board_->Remaining(c) / all + 0.5f));
             for (int k = 0; k < n; ++k) AddAnt(c, scale);
         }
     }
@@ -308,7 +267,7 @@ public:
                 if (!board_->Present(a->task, a->colorIdx)) { a->task = -1; }
                 else {
                     float qx, qy; board_->ClosestOnCell(a->task, a->x, a->y, qx, qy);
-                    if (m::Hypot(qx - a->x, qy - a->y) <= a->Radius() + 3.f) { Grab(a); continue; }
+                    if (NkVec2f(qx - a->x, qy - a->y).Len() <= a->Radius() + 3.f) { Grab(a); continue; }
                     if (a->Stuck() >= 3) { board_->Cooldown(a->task, 10.f); a->task = -1; a->ResetStuck(); }   // inaccessible : on change
                     else a->SetTarget(board_->CellX(a->task), board_->CellY(a->task));
                     if (a->task >= 0) continue;

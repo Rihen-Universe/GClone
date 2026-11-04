@@ -1,3 +1,4 @@
+// RETIRE le 04/11/2026 : adaptateur IPainter -> NKCanvas devenu inutile, le jeu dessine maintenant directement sur nkgui::NkGuiDrawList (NKGui) servi par NkCanvasGuiApp. Gardé ici, non compilé (déplacé, pas supprimé).
 // NkPainter.hpp — Adaptateur IPainter -> NKCanvas, SANS STL.
 // Tout est accumulé en TRIANGLES (NK_TRIANGLES uniquement, pas de fan) dans un buffer
 // fixe et envoyé en UN SEUL target.Draw() par flush -> très peu d'appels GPU.

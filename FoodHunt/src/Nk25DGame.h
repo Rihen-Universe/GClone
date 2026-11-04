@@ -1,39 +1,44 @@
-// Nk25DGame.hpp — Gameplay "slots" : stock de blocs numérotés -> 5 emplacements -> fourmis -> image.
-// Sans STL. Entrées : OnTap(x,y) en pixels écran. Rendu : DrawBackground() puis scene.Render() puis DrawUI().
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Nk25DGame.h — Gameplay "slots" : stock de blocs numérotés -> 5 emplacements -> fourmis -> image.
+// Migré le 04/11/2026 sur Nkentseu. Entrées : OnTap(x,y) en pixels écran. Rendu : DrawBackground() puis
+// scene.Render() puis DrawUI(), tous sur le même NkGuiDrawList.
 #pragma once
 #include "Nk25DBoard.h"
 
 namespace nk25d {
 
 // ---- Primitives UI (espace écran) ---------------------------------------------
-inline void RoundRect(IPainter& p, float cx, float cy, float w, float h, float r, Col c) {
-    Vec2 pts[24]; int n = 0; const int S = 5;
-    r = m::Min(r, m::Min(w, h) * .499f); float hx = w * .5f - r, hy = h * .5f - r;
-    const float ox[4] = {hx, -hx, -hx, hx}, oy[4] = {hy, hy, -hy, -hy}, a0[4] = {0, PI * .5f, PI, PI * 1.5f};
-    for (int k = 0; k < 4; ++k) for (int s = 0; s <= S; ++s) {
-        float a = a0[k] + PI * .5f * s / S; pts[n++] = { cx + ox[k] + m::Cos(a) * r, cy + oy[k] + m::Sin(a) * r };
-    }
-    p.FillPolygon(pts, n, c);
+// Texte centré avec ombre : le texte de l'interface passe par NkTexteCentreTaille (police embarquée de NKFont).
+inline void UiText(Dl& dl, float x, float y, float size, const char* t, const NkColor& c, bool shadow = true) {
+    GameText(dl, x, y, size, t, c, shadow);
 }
-inline Col Mix(Col a, Col b, float t) {
-    return { (unsigned char)(a.r + (b.r - a.r) * t), (unsigned char)(a.g + (b.g - a.g) * t), (unsigned char)(a.b + (b.b - a.b) * t), 255 };
+
+// Rectangle arrondi centré en (cx, cy) : le rayon est borné à la moitié du petit côté (au-delà, ce serait un disque).
+inline void RoundRectC(Dl& dl, float cx, float cy, float w, float h, float r, const NkColor& c) {
+    dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f, w, h), c, NkMin(r, NkMin(w, h) * .499f));
 }
-inline void UiText(IPainter& p, float x, float y, float size, const char* t, Col c, bool shadow = true) {
-    if (shadow) p.DrawText({x + size * .05f, y + size * .08f}, t, size, {0, 0, 0, 90});
-    p.DrawText({x, y}, t, size, c);
-}
-// Bloc "bonbon" 3D : lèvre sombre, face, reflet, contour blanc si sélectionnable
-inline void Block3D(IPainter& p, float cx, float cy, float sz, Col c, const char* txt, bool dim, bool outline, bool hidden) {
-    Col base = hidden ? Col{150, 105, 200, 255} : c;
-    if (dim) base = Mix(base, {205, 200, 205, 255}, 0.55f);
-    if (outline) RoundRect(p, cx, cy + sz * .02f, sz + 7, sz + 7, sz * .25f, {255, 255, 255, 255});
-    RoundRect(p, cx, cy + sz * .07f, sz, sz, sz * .22f, Shade(base, 0.66f));
-    RoundRect(p, cx, cy - sz * .02f, sz, sz * .93f, sz * .22f, base);
-    RoundRect(p, cx, cy - sz * .13f, sz * .84f, sz * .6f, sz * .17f, Shade(base, 1.13f));
+
+// Bloc "bonbon" 3D de l'interface : lèvre sombre, face, reflet, contour blanc si sélectionnable.
+// C'est un faux relief fait de TROIS rectangles arrondis superposés, du dessous vers le dessus :
+//   1. la « lèvre » (teinte x 0.66), décalée vers le BAS de 7 % : elle figure l'épaisseur latérale du bloc,
+//      vue d'un peu au-dessus (le même principe que la caméra 2.5D, avec une inclinaison fixe) ;
+//   2. la face avant, de la teinte de base, un peu plus courte que la lèvre : elle laisse voir la lèvre en bas ;
+//   3. le reflet : un rectangle plus petit et plus clair (x 1.13) vers le haut, qui suggère une surface bombée
+//      éclairée d'en haut.
+// La couleur du texte dépend de la LUMINANCE de la face, lum = (3 R + 6 G + B) / 10 (approximation entière de
+// 0.299 R + 0.587 G + 0.114 B, formule de la Rec. 601) : texte sombre sur fond clair, blanc sur fond foncé,
+// pour garder un contraste lisible quelle que soit la couleur du bloc.
+inline void Block3D(Dl& dl, float cx, float cy, float sz, NkColor c, const char* txt, bool dim, bool outline, bool hidden) {
+    NkColor base = hidden ? NkColor(150, 105, 200, 255) : c;
+    if (dim) base = base.Lerp(NkColor(205, 200, 205, 255), 0.55f);
+    if (outline) RoundRectC(dl, cx, cy + sz * .02f, sz + 7, sz + 7, sz * .25f, NkColor(255, 255, 255, 255));
+    RoundRectC(dl, cx, cy + sz * .07f, sz, sz, sz * .22f, base.Shade(0.66f));
+    RoundRectC(dl, cx, cy - sz * .02f, sz, sz * .93f, sz * .22f, base);
+    RoundRectC(dl, cx, cy - sz * .13f, sz * .84f, sz * .6f, sz * .17f, base.Shade(1.13f));
     int lum = (base.r * 3 + base.g * 6 + base.b) / 10;
-    Col tc = lum > 185 ? Col{70, 70, 85, 255} : Col{255, 255, 255, 255};
+    NkColor tc = lum > 185 ? NkColor(70, 70, 85, 255) : NkColor(255, 255, 255, 255);
     if (dim) tc.a = 170;
-    UiText(p, cx, cy - sz * .04f, sz * .42f, txt, tc, lum <= 185);
+    UiText(dl, cx, cy - sz * .04f, sz * .42f, txt, tc, lum <= 185);
 }
 
 struct StockBlock { int color; int count; bool mystery; };
@@ -47,13 +52,13 @@ public:
 
     void Init(Scene* sc, Board* b, float W, float H) {
         sc_ = sc; board_ = b; W_ = W; H_ = H; na_ = 0;
-        sc->camera.tilt = 0.85f; sc->camera.origin = {0, 0};
+        sc->camera.tilt = 0.85f; sc->camera.origin = NkVec2f(0.f, 0.f);
         float tilt = sc->camera.tilt;
-        b->cs = m::Max(4.f, (float)(int)(W * 0.86f / b->gw)); b->ch = b->cs * 0.8f;
+        b->cs = NkMax(4.f, (float)(int)(W * 0.86f / b->gw)); b->ch = b->cs * 0.8f;
         b->ox = (W - b->gw * b->cs) * .5f; b->oy = H * 0.135f / tilt;
         hx_ = W * .5f; hy_ = H * 0.585f / tilt;
         Hole* h = sc->Add<Hole>(); h->x = hx_; h->y = hy_; h->rx = W * 0.055f; h->ry = h->rx * 0.65f;
-        antScale_ = b->cs / 9.f; nSlots_ = 5; rng_ = 1234567u + (unsigned)level * 7919u;
+        antScale_ = b->cs / 9.f; nSlots_ = 5; rng_.Seed(1234567u + (uint32)level * 7919u);
         BuildStock();
     }
 
@@ -65,7 +70,7 @@ public:
     // Avance le jeu (sous-pas <= 1/30 s pour rester stable à vitesse x3)
     void Tick(float dt) {
         float d = dt * speedMul_;
-        while (d > 1e-5f) { float s = m::Min(d, 1.f / 30.f); Step(s); d -= s; }
+        while (d > 1e-5f) { float s = NkMin(d, 1.f / 30.f); Step(s); d -= s; }
     }
 
     // ---- Entrées ---------------------------------------------------------------
@@ -73,7 +78,7 @@ public:
         if (state_ != PLAYING) return;
         if (Hit(x, y, W_ * .87f, H_ * .047f, W_ * .08f, H_ * .025f)) { speedMul_ = speedMul_ >= 3.f ? 1.f : speedMul_ + 1.f; return; }
         for (int i = 0; i < 4; ++i)
-            if (m::Hypot(x - BtnX(i), y - BtnY()) < W_ * .085f) { Power(i); return; }
+            if (NkVec2f(x - BtnX(i), y - BtnY()).Len() < W_ * .085f) { Power(i); return; }
         for (int c = 0; c < COLS; ++c) for (int r = 0; r < 3 && r < len_[c]; ++r) {
             if (r > 0 && !hand_) continue;
             if (Hit(x, y, StockX(c), StockY(r), TileSz() * .5f + 4, TileSz() * .5f + 4)) { Deploy(c, r); return; }
@@ -81,55 +86,54 @@ public:
     }
 
     // ---- Rendu -----------------------------------------------------------------
-    void DrawBackground(IPainter& p) const {                     // plateau clair derrière l'image
+    void DrawBackground(Dl& dl) const {                     // plateau clair derrière l'image
         float x0 = board_->ox - 16, y0 = (board_->oy) * sc_->camera.tilt - 14;
         float w = board_->gw * board_->cs + 32, h = board_->gh * board_->cs * sc_->camera.tilt + board_->ch + 30;
-        RoundRect(p, x0 + w * .5f, y0 + h * .5f + 3, w, h, 18, {170, 140, 110, 90});
-        RoundRect(p, x0 + w * .5f, y0 + h * .5f, w, h, 18, {240, 228, 214, 255});
-        RoundRect(p, x0 + w * .5f, y0 + h * .5f, w - 8, h - 8, 14, {232, 218, 204, 255});
+        RoundRectC(dl, x0 + w * .5f, y0 + h * .5f + 3, w, h, 18, NkColor(170, 140, 110, 90));
+        RoundRectC(dl, x0 + w * .5f, y0 + h * .5f, w, h, 18, NkColor(240, 228, 214, 255));
+        RoundRectC(dl, x0 + w * .5f, y0 + h * .5f, w - 8, h - 8, 14, NkColor(232, 218, 204, 255));
     }
 
-    void DrawUI(IPainter& p) const {
-        char buf[24];
+    void DrawUI(Dl& dl) const {
         // --- stock (colonnes) : du fond vers l'avant
-        for (int c = 0; c < COLS; ++c) for (int r = m::Min(2, len_[c] - 1); r >= 0; --r) {
+        for (int c = 0; c < COLS; ++c) for (int r = NkMin(2, len_[c] - 1); r >= 0; --r) {
             const StockBlock& b = col_[c][r]; bool hidden = b.mystery && r > 0 && !hand_;
-            if (hidden) { buf[0] = '?'; buf[1] = 0; } else IntToStr(b.count, buf);
-            Block3D(p, StockX(c), StockY(r), TileSz(), board_->palette[b.color], buf, r > 0 && !hand_, r == 0 || hand_, hidden);
+            NkString s = hidden ? NkString("?") : NkFormat("{0}", b.count);
+            Block3D(dl, StockX(c), StockY(r), TileSz(), board_->palette[b.color], s.CStr(), r > 0 && !hand_, r == 0 || hand_, hidden);
         }
         // --- barre basse + boutons de pouvoir
-        RoundRect(p, W_ * .5f, H_ * 1.0f, W_ * 1.06f, H_ * .11f, 6, {150, 60, 205, 255});
-        const Col bc[4] = {{110, 200, 90, 255}, {240, 190, 50, 255}, {120, 130, 150, 255}, {70, 150, 230, 255}};
+        RoundRectC(dl, W_ * .5f, H_ * 1.0f, W_ * 1.06f, H_ * .11f, 6, NkColor(150, 60, 205, 255));
+        const NkColor bc[4] = {NkColor(110, 200, 90, 255), NkColor(240, 190, 50, 255), NkColor(120, 130, 150, 255), NkColor(70, 150, 230, 255)};
         const char* lab[4] = {"+", "H", "C", "U"};
         for (int i = 0; i < 4; ++i) {
             float x = BtnX(i), y = BtnY(), r = W_ * .075f;
-            p.FillEllipse({x, y}, r + 4, r + 4, {150, 60, 205, 255}); p.FillEllipse({x, y}, r, r, {255, 240, 235, 255});
-            p.FillEllipse({x, y + 2}, r * .78f, r * .78f, Shade(bc[i], .85f)); p.FillEllipse({x, y}, r * .78f, r * .78f, bc[i]);
-            UiText(p, x, y, r * 1.1f, lab[i], {255, 255, 255, 255});
+            dl.AddEllipseFilled(NkVec2f(x, y), r + 4, r + 4, NkColor(150, 60, 205, 255)); dl.AddEllipseFilled(NkVec2f(x, y), r, r, NkColor(255, 240, 235, 255));
+            dl.AddEllipseFilled(NkVec2f(x, y + 2), r * .78f, r * .78f, bc[i].Shade(.85f)); dl.AddEllipseFilled(NkVec2f(x, y), r * .78f, r * .78f, bc[i]);
+            UiText(dl, x, y, r * 1.1f, lab[i], NkColor(255, 255, 255, 255));
             float bx = x + r * .8f, by = y + r * .8f;
-            if (pw_[i] > 0) { p.FillEllipse({bx, by}, r * .36f, r * .36f, {255, 170, 30, 255}); IntToStr(pw_[i], buf); UiText(p, bx, by, r * .5f, buf, {255,255,255,255}, false); }
-            else { p.FillEllipse({bx, by}, r * .36f, r * .36f, {70, 200, 70, 255}); UiText(p, bx, by, r * .6f, "+", {255,255,255,255}, false); }
+            if (pw_[i] > 0) { dl.AddEllipseFilled(NkVec2f(bx, by), r * .36f, r * .36f, NkColor(255, 170, 30, 255)); NkString s = NkFormat("{0}", pw_[i]); UiText(dl, bx, by, r * .5f, s.CStr(), NkColor(255,255,255,255), false); }
+            else { dl.AddEllipseFilled(NkVec2f(bx, by), r * .36f, r * .36f, NkColor(70, 200, 70, 255)); UiText(dl, bx, by, r * .6f, "+", NkColor(255,255,255,255), false); }
         }
         // --- slots
-        int n = nSlots_; float sp = m::Min(W_ * .16f, W_ * .88f / n), x0 = W_ * .5f - sp * (n - 1) * .5f, ssz = W_ * .125f;
+        int n = nSlots_; float sp = NkMin(W_ * .16f, W_ * .88f / n), x0 = W_ * .5f - sp * (n - 1) * .5f, ssz = W_ * .125f;
         for (int i = 0; i < n; ++i) {
             float x = x0 + sp * i, y = H_ * .685f;
-            if (slot_[i].active) { IntToStr(slot_[i].remaining, buf); Block3D(p, x, y, ssz, board_->palette[slot_[i].color], buf, false, false, false); }
-            else { RoundRect(p, x, y + 5, ssz, ssz, ssz * .2f, {200, 175, 150, 255}); RoundRect(p, x, y, ssz, ssz * .94f, ssz * .2f, {243, 239, 235, 255}); }
+            if (slot_[i].active) { NkString s = NkFormat("{0}", slot_[i].remaining); Block3D(dl, x, y, ssz, board_->palette[slot_[i].color], s.CStr(), false, false, false); }
+            else { RoundRectC(dl, x, y + 5, ssz, ssz, ssz * .2f, NkColor(200, 175, 150, 255)); RoundRectC(dl, x, y, ssz, ssz * .94f, ssz * .2f, NkColor(243, 239, 235, 255)); }
         }
         // --- en-tête
-        p.FillEllipse({W_ * .075f, H_ * .047f}, W_ * .055f, W_ * .055f, {255, 255, 255, 255});
-        p.FillEllipse({W_ * .075f, H_ * .047f}, W_ * .046f, W_ * .046f, {150, 60, 205, 255});
-        IntToStr(level, buf); char lv[32] = "Level "; int k = 6; for (int i = 0; buf[i]; ++i) lv[k++] = buf[i]; lv[k] = 0;
-        RoundRect(p, W_ * .5f, H_ * .047f, W_ * .27f, H_ * .033f, H_ * .016f, {150, 60, 205, 255});
-        UiText(p, W_ * .5f, H_ * .047f, H_ * .021f, lv, {255, 255, 255, 255});
-        RoundRect(p, W_ * .87f, H_ * .047f, W_ * .16f, H_ * .04f, H_ * .02f, {120, 120, 125, 255});
-        buf[0] = 'x'; IntToStr((int)speedMul_, buf + 1); UiText(p, W_ * .87f, H_ * .047f, H_ * .022f, buf, {255, 255, 255, 255});
-        if (hand_) UiText(p, W_ * .5f, H_ * .74f - TileSz() * .8f, H_ * .02f, "Choisis un bloc", {255, 255, 255, 255});
-        if (boost_ > 0) UiText(p, W_ * .5f, H_ * .1f, H_ * .02f, "UFO !", {255, 240, 120, 255});
+        dl.AddEllipseFilled(NkVec2f(W_ * .075f, H_ * .047f), W_ * .055f, W_ * .055f, NkColor(255, 255, 255, 255));
+        dl.AddEllipseFilled(NkVec2f(W_ * .075f, H_ * .047f), W_ * .046f, W_ * .046f, NkColor(150, 60, 205, 255));
+        NkString lv = NkFormat("Level {0}", level);
+        RoundRectC(dl, W_ * .5f, H_ * .047f, W_ * .27f, H_ * .033f, H_ * .016f, NkColor(150, 60, 205, 255));
+        UiText(dl, W_ * .5f, H_ * .047f, H_ * .021f, lv.CStr(), NkColor(255, 255, 255, 255));
+        RoundRectC(dl, W_ * .87f, H_ * .047f, W_ * .16f, H_ * .04f, H_ * .02f, NkColor(120, 120, 125, 255));
+        NkString sp2 = NkFormat("x{0}", (int)speedMul_); UiText(dl, W_ * .87f, H_ * .047f, H_ * .022f, sp2.CStr(), NkColor(255, 255, 255, 255));
+        if (hand_) UiText(dl, W_ * .5f, H_ * .74f - TileSz() * .8f, H_ * .02f, "Choisis un bloc", NkColor(255, 255, 255, 255));
+        if (boost_ > 0) UiText(dl, W_ * .5f, H_ * .1f, H_ * .02f, "UFO !", NkColor(255, 240, 120, 255));
         if (state_ != PLAYING) {
-            RoundRect(p, W_ * .5f, H_ * .4f, W_ * .8f, H_ * .14f, 24, {40, 20, 60, 215});
-            UiText(p, W_ * .5f, H_ * .385f, H_ * .04f, state_ == WON ? "Niveau termine !" : "Echec", {255, 255, 255, 255});
+            RoundRectC(dl, W_ * .5f, H_ * .4f, W_ * .8f, H_ * .14f, 24, NkColor(40, 20, 60, 215));
+            UiText(dl, W_ * .5f, H_ * .385f, H_ * .04f, state_ == WON ? "Niveau termine !" : "Echec", NkColor(255, 255, 255, 255));
         }
     }
 
@@ -140,8 +144,7 @@ private:
     float StockY(int r) const { return H_ * (0.765f + 0.07f * r); }
     float BtnX(int i) const { return W_ * (0.176f + 0.217f * i); }
     float BtnY() const { return H_ * .955f; }
-    static bool Hit(float x, float y, float cx, float cy, float hw, float hh) { return x >= cx - hw && x <= cx + hw && y >= cy - hh && y <= cy + hh; }
-    unsigned Rnd() { rng_ = rng_ * 1664525u + 1013904223u; return rng_ >> 16; }
+    static bool Hit(float x, float y, float cx, float cy, float hw, float hh) { return nkentseu::math::NkFloatRect(cx - hw, cy - hh, 2 * hw, 2 * hh).Contains(x, y); }
 
     // ---- stock -----------------------------------------------------------------------
     void BuildStock() {
@@ -150,11 +153,12 @@ private:
             int left = board_->Remaining(c);
             while (left > 0 && n < MAXALL) {
                 int cand[7], nc = 0; for (int i = 0; i < 7; ++i) if (sz[i] <= left) cand[nc++] = sz[i];
-                int s = nc ? cand[Rnd() % nc] : left; if (n == MAXALL - 1) s = left;
-                all[n++] = { c, s, (Rnd() % 100) < 18 }; left -= s;
+                int s = nc ? cand[rng_.NextUInt32((uint32)nc)] : left; if (n == MAXALL - 1) s = left;
+                all[n++] = { c, s, rng_.NextUInt32(100) < 18 }; left -= s;
             }
         }
-        for (int i = n - 1; i > 0; --i) { int j = Rnd() % (i + 1); StockBlock t = all[i]; all[i] = all[j]; all[j] = t; }
+        // Mélange de Fisher-Yates : chaque permutation a la même probabilité (n! cas pour n échanges).
+        for (int i = n - 1; i > 0; --i) { int j = (int)rng_.NextUInt32((uint32)(i + 1)); StockBlock t = all[i]; all[i] = all[j]; all[j] = t; }
         for (int c = 0; c < COLS; ++c) len_[c] = 0;
         for (int i = 0; i < n; ++i) { int c = i % COLS; if (len_[c] < MAXCOL) col_[c][len_[c]++] = all[i]; }
     }
@@ -205,14 +209,14 @@ private:
             if (a->Busy()) { if (a->Stuck() >= 2) { PathHome(a); a->ResetStuck(); } continue; }   // chargée et coincée : on recalcule le chemin
             Slot& sl = slot_[a->owner];
             if (a->task == -2) {
-                if (m::Hypot(a->x - hx_, a->y - hy_) < 16.f) { Despawn(i); --i; } else if (a->Arrived()) PathHome(a);
+                if (NkVec2f(a->x - hx_, a->y - hy_).Len() < 16.f) { Despawn(i); --i; } else if (a->Arrived()) PathHome(a);
                 continue;
             }
             if (a->task >= 0) {
                 if (!board_->Present(a->task, a->colorIdx)) { a->task = -1; --tasks[a->owner]; }
                 else {
                     float qx, qy; board_->ClosestOnCell(a->task, a->x, a->y, qx, qy);
-                    if (m::Hypot(qx - a->x, qy - a->y) <= a->Radius() + 3.f) { --tasks[a->owner]; Grab(a); busy = true; continue; }
+                    if (NkVec2f(qx - a->x, qy - a->y).Len() <= a->Radius() + 3.f) { --tasks[a->owner]; Grab(a); busy = true; continue; }
                     if (a->Stuck() >= 3) { board_->Cooldown(a->task, 10.f); a->task = -1; --tasks[a->owner]; a->ResetStuck(); }
                     else {
                         if (a->Arrived() && !PathToCell(a)) { board_->Cooldown(a->task, 10.f); a->task = -1; --tasks[a->owner]; }
@@ -250,8 +254,8 @@ private:
     }
     void SpawnAnt(int s) {
         Ant* a = sc_->Add<Ant>(); a->colorIdx = slot_[s].color; a->owner = s; a->color = board_->palette[a->colorIdx];
-        a->scale = antScale_; a->eatOnArrive = true; a->arriveRadius = 16.f; a->heading = -PI * .5f;
-        a->speed = 120.f + float(Rnd() % 40); a->x = hx_ + float(Rnd() % 21) - 10; a->y = hy_ + float(Rnd() % 11) - 5;
+        a->scale = antScale_; a->eatOnArrive = true; a->arriveRadius = 16.f; a->heading = -NK_PI_F * .5f;
+        a->speed = 120.f + float(rng_.NextUInt32(40)); a->x = hx_ + float(rng_.NextUInt32(21)) - 10; a->y = hy_ + float(rng_.NextUInt32(11)) - 5;
         ants_[na_++] = a; ++slot_[s].outstanding;
     }
     void Despawn(int i) { Ant* a = ants_[i]; a->dead = true; --slot_[a->owner].outstanding; ants_[i] = ants_[--na_]; }
@@ -263,11 +267,11 @@ private:
         a->task = -1; a->PickUp(b, hx_, hy_); PathHome(a);
     }
     bool PathToCell(Ant* a) {                                    // chemin jusqu'au bloc visé
-        Vec2 pts[40]; int n = board_->FindPathToCell(a->x, a->y, a->task, pts, 40); if (n <= 0) return false;
+        NkVec2f pts[40]; int n = board_->FindPathToCell(a->x, a->y, a->task, pts, 40); if (n <= 0) return false;
         a->arriveRadius = 5.f; a->SetPath(pts, n, board_->CellX(a->task), board_->CellY(a->task)); return true;
     }
     void PathHome(Ant* a) {                                      // chemin jusqu'au trou
-        Vec2 pts[40]; int n = board_->FindPathToPoint(a->x, a->y, hx_, hy_, pts, 40); a->arriveRadius = 16.f;
+        NkVec2f pts[40]; int n = board_->FindPathToPoint(a->x, a->y, hx_, hy_, pts, 40); a->arriveRadius = 16.f;
         if (n > 0) a->SetPath(pts, n, hx_, hy_); else a->SetTarget(hx_, hy_);
     }
 
@@ -277,7 +281,7 @@ private:
     Ant* ants_[MAXANTS]; int na_ = 0;
     int pw_[4] = {1, 0, 0, 1}; bool hand_ = false; float boost_ = 0, speedMul_ = 1;
     int expo_[MAX_PAL] = {}; float expoT_ = 0, stallT_ = 0, autoT_ = 1.0f; bool auto_ = false;
-    State state_ = PLAYING; unsigned rng_ = 1;
+    State state_ = PLAYING; NkLcg32 rng_;
 };
 
 } // namespace nk25d

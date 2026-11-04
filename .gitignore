@@ -1,0 +1,19 @@
+Build/
+.jenga/
+.nkcode/
+pyrightconfig.json
+.vscode/
+*.o
+*.obj
+*.exe
+*.dll
+*.so
+*.a
+*.lib
+
+# (04/11/2026) Le kit Nkentseu se télécharge depuis les publications de Nkentseu-Kits : ses bibliothèques
+# précompilées ne vont jamais dans git. Les journaux et les archives non plus.
+Kits/
+logs/
+*.zip
+*.log

@@ -1,0 +1,355 @@
+================================================================================
+                  RIHEN UNIVERSE PROPRIETARY LICENSE
+                       (NKENTSEU + JENGA + JEUX)
+================================================================================
+
+Copyright (c) 2022-2026 TEUGUIA TADJUIDJE Rodolf Sederis ("Rihen"), operating as Rihen Universe.
+All Rights Reserved. Tous droits reserves.
+
+Cette licence couvre l'ensemble de l'ecosysteme logiciel Rihen Universe,
+incluant sans s'y limiter :
+  - le moteur NKENTSEU (Kernel, Runtime, modules) ;
+  - le systeme de build JENGA et ses outils ;
+  - toutes les applications publiees par Rihen Universe, notamment Pong
+    Ultra Arena et leurs versions demo / alpha / beta ;
+  - les ressources visuelles, sonores, graphiques et documentaires
+    associees ;
+  - l'ensemble des codes sources, binaires, builds, packagings.
+
+(Le terme "Logiciel" ci-apres designe tous ces elements indistinctement.)
+
+PROPRIETARY AND CONFIDENTIAL.
+
+================================================================================
+                            [FR] VERSION FRANCAISE
+================================================================================
+
+1. PROPRIETE INTELLECTUELLE
+   Tous les droits, titres et interets sur le Logiciel, incluant le code
+   source, les binaires, les ressources audiovisuelles, la documentation,
+   les marques deposees et les designs, sont et resteront la propriete
+   exclusive de leur auteur, TEUGUIA TADJUIDJE Rodolf Sederis, dit
+   « Rihen », qui les exploite sous le nom Rihen Universe (le "Concedant").
+   Dans toute cette licence, « Rihen Universe » designe le Concedant. Aucun
+   droit non explicitement accorde dans cette licence n'est cede. Le
+   Logiciel est developpe depuis 2022 (depots LeTeguis/Nkentseu et suivants).
+
+2. LICENCE D'UTILISATION
+   Sous reserve du respect de cette licence, le Concedant vous accorde une
+   licence personnelle, non-exclusive, non-transferable, revocable et
+   limitee pour :
+   a) installer et executer le Logiciel sur les appareils dont vous etes
+      l'utilisateur autorise ;
+   b) utiliser le Logiciel a des fins PERSONNELLES, RECREATIVES et
+      NON-COMMERCIALES ;
+   c) utiliser les versions demo gratuites dans le cadre de l'evaluation
+      du produit.
+
+   Toute autre utilisation, y compris commerciale, requiert l'accord
+   ecrit prealable du Concedant.
+
+3. INTERDICTIONS
+   Sauf accord ecrit prealable du Concedant, il est strictement interdit
+   de :
+   a) reproduire, copier, distribuer, vendre, louer, preter, sous-
+      licencier, mettre en ligne ou rendre accessible publiquement le
+      Logiciel ou ses composantes (totales ou partielles) ;
+   b) modifier, adapter, traduire, retroconcevoir, decompiler, desassembler
+      ou autrement tenter de deriver le code source du Logiciel a partir
+      de ses binaires ;
+   c) retirer, alterer ou masquer toute mention de copyright, marque
+      deposee, identifiant de propriete, signature numerique ou notice
+      legale presente dans le Logiciel ;
+   d) utiliser le Logiciel pour developper, distribuer ou commercialiser
+      un produit concurrent ou derive sans autorisation ;
+   e) integrer le Logiciel ou ses composantes dans un autre logiciel
+      destine a la distribution ;
+   f) contourner, desactiver ou modifier les mecanismes techniques de
+      protection, de licence ou de monetisation du Logiciel ;
+   g) utiliser le Logiciel d'une maniere illegale, frauduleuse, nuisible
+      a des tiers, ou contraire a l'ordre public et aux bonnes moeurs.
+
+4. MONETISATION ET REMUNERATION
+   Le Concedant se reserve le droit exclusif et perpetuel de monetiser le
+   Logiciel sous toute forme et par tout moyen, present ou futur, incluant
+   notamment : vente de licences, abonnements, micro-transactions, contenus
+   additionnels payants, publicites, sponsoring, donations volontaires,
+   partenariats commerciaux, licenses entreprises. Toute tentative de
+   contournement, de fraude ou d'exploitation non autorisee constitue une
+   violation grave de cette licence et expose l'auteur a des poursuites
+   civiles et penales.
+
+5. VERSIONS DEMO, ALPHA ET BETA
+   Les versions pre-release, demo, alpha et beta sont fournies a titre
+   informatif et evaluatif uniquement. Elles peuvent etre incompletes,
+   instables, contenir des bugs ou des donnees temporaires. Vous acceptez
+   de :
+   a) ne pas distribuer ces versions au-dela du cercle restreint autorise
+      par le Concedant ;
+   b) ne publier aucune information confidentielle (gameplay non public,
+      fonctionnalites non annoncees, code, ressources internes) sans
+      autorisation ecrite ;
+   c) signaler au Concedant tout bug, faille de securite ou comportement
+      indesirable de bonne foi.
+   Le Concedant peut revoquer l'acces aux versions pre-release a tout
+   moment, sans preavis ni indemnite.
+
+6. ABSENCE DE GARANTIE
+   LE LOGICIEL EST FOURNI "EN L'ETAT" ET "TEL QUE DISPONIBLE", SANS
+   GARANTIE D'AUCUNE SORTE, EXPRESSE OU IMPLICITE, INCLUANT NOTAMMENT
+   LES GARANTIES IMPLICITES DE QUALITE MARCHANDE, D'ADEQUATION A UN
+   USAGE PARTICULIER, DE NON-VIOLATION DES DROITS DE TIERS, OU D'ABSENCE
+   D'ERREUR. LE CONCEDANT NE GARANTIT PAS QUE LE LOGICIEL FONCTIONNERA
+   SANS INTERRUPTION NI ERREUR, NI QUE LES DEFAUTS SERONT CORRIGES.
+
+7. LIMITATION DE RESPONSABILITE
+   DANS TOUTE LA MESURE PERMISE PAR LA LOI APPLICABLE, LE CONCEDANT NE
+   POURRA EN AUCUN CAS ETRE TENU RESPONSABLE DE DOMMAGES DIRECTS,
+   INDIRECTS, INCIDENTS, SPECIAUX, EXEMPLAIRES, PUNITIFS OU CONSEQUENTS
+   (INCLUANT NOTAMMENT PERTE DE PROFIT, PERTE DE DONNEES, INTERRUPTION
+   D'ACTIVITE, COUT D'ACQUISITION D'UN SERVICE OU PRODUIT DE REMPLACEMENT)
+   RESULTANT DE OU LIES A L'UTILISATION OU A L'IMPOSSIBILITE D'UTILISER
+   LE LOGICIEL, MEME SI LE CONCEDANT A ETE INFORME DE LA POSSIBILITE DE
+   TELS DOMMAGES. LA RESPONSABILITE TOTALE DU CONCEDANT NE POURRA EN
+   AUCUN CAS EXCEDER LE MONTANT REELLEMENT PAYE PAR VOUS POUR LE LOGICIEL
+   DANS LES DOUZE (12) MOIS PRECEDANT LE DOMMAGE, OU CINQ (5) EUROS,
+   SELON LE PLUS ELEVE.
+
+8. INDEMNISATION
+   Vous acceptez de defendre, indemniser et tenir indemne le Concedant
+   contre toute reclamation, dommage, perte, responsabilite, cout ou
+   depense (incluant frais d'avocats raisonnables) decoulant de :
+   a) votre utilisation ou mauvaise utilisation du Logiciel ;
+   b) votre violation de cette licence ou de la loi applicable ;
+   c) votre violation des droits d'un tiers via l'utilisation du Logiciel.
+
+9. DUREE ET RESILIATION
+   Cette licence est effective des l'installation du Logiciel et le reste
+   jusqu'a sa resiliation. Elle est automatiquement et immediatement
+   resiliee sans preavis si vous violez l'une quelconque de ses
+   conditions. A la resiliation, vous devez :
+   a) cesser immediatement toute utilisation du Logiciel ;
+   b) detruire ou desinstaller toutes les copies en votre possession ;
+   c) attester par ecrit de cette destruction sur demande du Concedant.
+   Les sections 1, 3, 6, 7, 8, 10, 11, 12 survivent a la resiliation.
+
+10. CONFIDENTIALITE
+    Toute information non publique relative au Logiciel (incluant code,
+    designs, roadmaps, donnees techniques, plans commerciaux, builds
+    pre-release) est confidentielle. Vous vous engagez a la proteger avec
+    le meme degre de soin que vos propres informations confidentielles et
+    a ne pas la divulguer a des tiers sans accord ecrit prealable. Cette
+    obligation survit a la resiliation pour une duree de cinq (5) ans.
+
+11. DROIT APPLICABLE ET JURIDICTION
+    Cette licence est regie par et interpretee conformement aux lois
+    applicables dans le pays de residence du Concedant, sans egard aux
+    regles de conflits de lois. Tout litige decoulant de cette licence
+    sera soumis a la competence exclusive des tribunaux du ressort du
+    Concedant. Vous renoncez expressement a toute objection fondee sur la
+    competence territoriale ou le forum non conveniens.
+
+12. DIVERS
+    a) Cession : Vous ne pouvez ceder, transferer ou sous-licencier cette
+       licence sans l'accord ecrit prealable du Concedant. Le Concedant
+       peut ceder ou transferer ses droits sans restriction.
+    b) Modifications : Le Concedant peut modifier cette licence a tout
+       moment. La version a jour est disponible avec chaque release du
+       Logiciel.
+    c) Divisibilite : Si une disposition de cette licence est jugee
+       invalide ou inapplicable, les autres dispositions restent en
+       vigueur.
+    d) Renonciation : L'absence d'exercice par le Concedant d'un droit
+       prevu par cette licence ne constitue pas une renonciation a ce
+       droit.
+    e) Integralite : Cette licence constitue l'integralite de l'accord
+       entre les parties concernant le Logiciel et remplace tout accord
+       ou communication anterieur.
+
+13. CONTACT
+    Pour toute demande d'autorisation, licence commerciale, partenariat,
+    notification de violation ou question legale, contacter :
+       Rihen Universe
+       Email     : rihen.universe@gmail.com
+       LinkedIn  : https://www.linkedin.com/company/rihen-universe
+       GitHub    : https://github.com/RihenUniverse
+
+================================================================================
+                            [EN] ENGLISH VERSION
+================================================================================
+
+1. INTELLECTUAL PROPERTY
+   All rights, title and interest in the Software, including source code,
+   binaries, audiovisual assets, documentation, trademarks and designs,
+   are and shall remain the exclusive property of their author, TEUGUIA
+   TADJUIDJE Rodolf Sederis, known as "Rihen", who operates them under the
+   name Rihen Universe (the "Licensor"). Throughout this license, "Rihen
+   Universe" designates the Licensor. No rights are granted other than those
+   expressly stated herein. The Software has been developed since 2022
+   (repositories LeTeguis/Nkentseu and following).
+
+2. LICENSE GRANT
+   Subject to compliance with this license, the Licensor grants You a
+   personal, non-exclusive, non-transferable, revocable and limited
+   license to:
+   a) install and run the Software on devices for which You are an
+      authorized user;
+   b) use the Software for PERSONAL, RECREATIONAL and NON-COMMERCIAL
+      purposes only;
+   c) use free demo versions strictly for product evaluation.
+
+   Any other use, including commercial, requires the Licensor's prior
+   written consent.
+
+3. RESTRICTIONS
+   Without the Licensor's prior written consent, You may NOT:
+   a) reproduce, copy, distribute, sell, rent, lend, sublicense, host or
+      otherwise make available the Software or any of its components
+      (in whole or in part);
+   b) modify, adapt, translate, reverse engineer, decompile, disassemble
+      or otherwise attempt to derive the source code from binaries;
+   c) remove, alter or obscure any copyright, trademark or proprietary
+      notices in the Software;
+   d) use the Software to develop, distribute or commercialize a
+      competing or derivative product;
+   e) embed the Software or its components in any other software for
+      redistribution;
+   f) circumvent, disable or modify any technical protection, licensing
+      or monetization mechanism in the Software;
+   g) use the Software in any unlawful, fraudulent or harmful manner.
+
+4. MONETIZATION
+   The Licensor reserves the exclusive and perpetual right to monetize
+   the Software by any means, including but not limited to: license
+   sales, subscriptions, in-app purchases, paid additional content,
+   advertising, sponsorships, donations, commercial partnerships and
+   enterprise licenses. Any attempt to circumvent, defraud or
+   unauthorized exploit constitutes a material breach and exposes the
+   perpetrator to civil and criminal action.
+
+5. PRE-RELEASE, DEMO, ALPHA AND BETA VERSIONS
+   Pre-release, demo, alpha and beta versions are provided for evaluation
+   only. They may be incomplete, unstable, contain bugs or temporary data.
+   You agree to:
+   a) not distribute these versions beyond the restricted circle
+      authorized by the Licensor;
+   b) not publicly disclose any confidential information (non-public
+      gameplay, unannounced features, internal code or assets) without
+      written authorization;
+   c) report any bug, security vulnerability or undesirable behavior in
+      good faith.
+   The Licensor may revoke access to pre-release versions at any time.
+
+6. NO WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY
+   OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+   IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR
+   PURPOSE, NON-INFRINGEMENT, OR ERROR-FREE OPERATION.
+
+7. LIMITATION OF LIABILITY
+   TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+   THE LICENSOR BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
+   EXEMPLARY, PUNITIVE OR CONSEQUENTIAL DAMAGES (INCLUDING LOSS OF
+   PROFITS, LOSS OF DATA, BUSINESS INTERRUPTION) ARISING OUT OF OR
+   RELATED TO USE OR INABILITY TO USE THE SOFTWARE, EVEN IF ADVISED OF
+   THE POSSIBILITY OF SUCH DAMAGES. THE LICENSOR'S TOTAL LIABILITY SHALL
+   NOT EXCEED THE GREATER OF (A) THE AMOUNT YOU ACTUALLY PAID FOR THE
+   SOFTWARE IN THE TWELVE (12) MONTHS PRECEDING THE CLAIM OR (B) FIVE (5)
+   EUROS.
+
+8. INDEMNIFICATION
+   You agree to defend, indemnify and hold harmless the Licensor against
+   any claim, damage, loss, liability, cost or expense (including
+   reasonable attorney fees) arising from Your use or misuse of the
+   Software, Your breach of this license, or Your violation of any
+   third-party rights.
+
+9. TERM AND TERMINATION
+   This license is effective upon installation and remains in effect
+   until terminated. It is automatically terminated without notice if You
+   breach any of its terms. Upon termination, You must immediately cease
+   all use, destroy or uninstall all copies, and certify destruction upon
+   request. Sections 1, 3, 6, 7, 8, 10, 11, 12 survive termination.
+
+10. CONFIDENTIALITY
+    Any non-public information about the Software is confidential. You
+    shall protect it with the same degree of care as Your own
+    confidential information and shall not disclose it to third parties
+    without prior written consent. This obligation survives termination
+    for five (5) years.
+
+11. GOVERNING LAW AND JURISDICTION
+    This license is governed by the laws of the Licensor's country of
+    residence, without regard to conflict-of-law rules. Any dispute shall
+    be submitted to the exclusive jurisdiction of the competent courts of
+    the Licensor's domicile.
+
+12. MISCELLANEOUS
+    a) Assignment: You may not assign or transfer this license without
+       the Licensor's prior written consent. The Licensor may freely
+       assign its rights.
+    b) Modifications: The Licensor may modify this license at any time;
+       the current version ships with each release.
+    c) Severability: If any provision is held invalid, the remaining
+       provisions remain in force.
+    d) Waiver: The Licensor's failure to enforce any right does not
+       constitute a waiver.
+    e) Entire Agreement: This license constitutes the entire agreement
+       between the parties regarding the Software.
+
+12bis. EXPLICIT PROHIBITIONS / INTERDICTIONS EXPLICITES (added 2026-10-04)
+    Without the prior written permission of Rihen Universe, it is forbidden to:
+      a) copy, reproduce, modify, translate, adapt or create derivative works
+         of the Software, in whole or in part, including its architecture,
+         documentation, examples, file formats and public interfaces;
+      b) distribute, publish, sublicense, sell or otherwise make the Software
+         or any part of it available to third parties;
+      c) use the Software, in whole or in part, to train, fine-tune, evaluate
+         or otherwise feed any artificial intelligence or machine-learning
+         system, dataset or model;
+      d) submit the Software, in whole or in part, to an artificial
+         intelligence tool or service in order to reproduce, rewrite, port
+         or derive a competing or similar product.
+    Viewing the source code where it is publicly accessible grants none of
+    these rights. Every file of the Software remains covered by this license
+    even when it is copied separately.
+
+    Sans l'autorisation ecrite prealable de Rihen Universe, il est interdit :
+      a) de copier, reproduire, modifier, traduire, adapter ou deriver le
+         Logiciel, en tout ou en partie, y compris son architecture, sa
+         documentation, ses exemples, ses formats de fichiers et ses
+         interfaces publiques ;
+      b) de le distribuer, publier, sous-licencier, vendre ou mettre a la
+         disposition de tiers, en tout ou en partie ;
+      c) de l'utiliser, en tout ou en partie, pour entrainer, affiner,
+         evaluer ou alimenter tout systeme, jeu de donnees ou modele
+         d'intelligence artificielle ou d'apprentissage automatique ;
+      d) de le soumettre, en tout ou en partie, a un outil ou service
+         d'intelligence artificielle afin de reproduire, reecrire, porter ou
+         deriver un produit concurrent ou similaire.
+    La consultation du code source la ou il est accessible publiquement ne
+    confere aucun de ces droits. Chaque fichier du Logiciel reste couvert par
+    cette licence, meme copie isolement.
+
+13. CONTACT
+    Rihen Universe
+       Email     : rihen.universe@gmail.com
+       LinkedIn  : https://www.linkedin.com/company/rihen-universe
+       GitHub    : https://github.com/RihenUniverse
+
+================================================================================
+
+By installing, copying, or otherwise using the Software, you acknowledge
+that you have read this license, understand it, and agree to be bound by
+its terms. If you do not agree, do not install or use the Software.
+
+En installant, copiant ou utilisant de toute autre maniere le Logiciel,
+vous reconnaissez avoir lu cette licence, l'avoir comprise et accepter
+d'etre lie par ses termes. Si vous n'acceptez pas, n'installez pas et
+n'utilisez pas le Logiciel.
+
+================================================================================
+        (c) 2022-2026 TEUGUIA TADJUIDJE Rodolf Sederis - Rihen Universe
+                            All Rights Reserved
+                           PROPRIETARY SOFTWARE
+================================================================================

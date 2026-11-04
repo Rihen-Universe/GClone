@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""GClone - workspace Jenga (genere par NKCode)."""
+
+import os
+from Jenga import *
+from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
+
+loadkit("./Kits/NKCanvas")
+
+with workspace("GClone"):
+    RegisterJengaGlobalToolchains()
+
+    # (08/10) LA FICHE D'IDENTITE de tous les executables de la famille (Jenga 2.8.16 : la
+    # ressource de version Windows -- societe, produit, description, version). Sans elle un
+    # .exe est un inconnu complet pour Windows (Smart App Control). Chaque application peut
+    # redire la sienne (apppublisher, appdescription, appversion, appcopyright).
+    apppublisher("Rihen Universe")
+    appcopyright("© 2026 Rihen Universe")
+    
+    configurations(["Debug", "Release"])
+    targetoses([
+        TargetOS.WINDOWS,
+        TargetOS.LINUX,
+        # TargetOS.ANDROID,
+        TargetOS.HARMONYOS,
+        TargetOS.WEB,
+    ])
+    targetarchs([
+        TargetArch.X86_64,
+        TargetArch.ARM64,
+        TargetArch.WASM32,
+        TargetArch.X86,
+        TargetArch.ARM,
+        TargetArch.WASM64,
+        TargetArch.MIPS,
+    ])
+    androidsdkpath(os.getenv("ANDROID_SDK_ROOT", ""))
+    androidndkpath(os.getenv("ANDROID_NDK_ROOT", ""))
+    
+    newoption(
+        trigger="linux-backend",
+        value="BACKEND",
+        allowed=[
+            ["xlib",     "X11/XLib  (defaut, le plus compatible)"],
+            ["xcb",      "X11/XCB   (plus leger, asynchrone)"],
+            ["wayland",  "Wayland   (compositeurs modernes, sans X11)"],
+            ["headless", "Pas de fenetre (CI, serveurs, WSL sans ecran)"],
+        ],
+        default="xlib",
+        description="Backend de fenetrage Linux"
+    )
+
+    with include("FoodHunt/FoodHunt.jenga"):
+        pass

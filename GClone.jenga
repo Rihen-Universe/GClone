@@ -6,7 +6,10 @@ import os
 from Jenga import *
 from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
 
-loadkit("./Kits/NKCanvas")
+# (05/11/2026) Le kit vit hors du depot, dans ../Kits : plusieurs applications de Live le partagent. loadkit le
+# cherche aussi dans Kits/ a la racine, pour qui prefere le decompresser ici.
+kitpaths("../Kits")
+loadkit("NKCanvas")
 
 with workspace("GClone"):
     RegisterJengaGlobalToolchains()
@@ -22,7 +25,9 @@ with workspace("GClone"):
     targetoses([
         TargetOS.WINDOWS,
         TargetOS.LINUX,
-        # TargetOS.ANDROID,
+        TargetOS.MACOS,
+        TargetOS.IOS,
+        TargetOS.ANDROID,
         TargetOS.HARMONYOS,
         TargetOS.WEB,
     ])

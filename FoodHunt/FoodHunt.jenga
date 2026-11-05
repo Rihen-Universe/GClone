@@ -8,7 +8,7 @@ from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
 RegisterJengaGlobalToolchains()
 
 with project("FoodHunt"):
-    consoleapp()
+    windowedapp()
     language("C++")
     cppdialect("C++17")
     location(".")
@@ -21,7 +21,7 @@ with project("FoodHunt"):
     
     apppublisher("Rihen Universe")
     appversion("0.1.0")
-    licensefile("../../LICENSE")
+    licensefile("../LICENSE")
     
     usenkcanvas()
     
@@ -80,12 +80,12 @@ with project("FoodHunt"):
     with filter("system:Android"):
         windowedapp()
         usetoolchain("android-ndk")
-        androidapplicationid("com.nkentseu.nkludo")
+        androidapplicationid("com.rihen.foodhunt")
         androidisgame(True)
         androidminsdk(24)
         androidtargetsdk(34)
         androidcompilesdk(34)
-        androidabis(["armeabi-v7a", "arm64-v8a", "x86", "x86_64"])
+        androidabis(["arm64-v8a"])  # la seule ABI du kit
         androidnativeactivity(True)
         # PORTRAIT : c'est l'orientation du jeu (plateau carre + HUD au-dessus,
         # cf. NkGemLayout::Compute). La valeur precedente, "landscape", venait
@@ -110,7 +110,7 @@ with project("FoodHunt"):
         #   liste macOS a rendu "ld: framework AudioUnit not found" — mesure de
         #   la CI iOS du 2026-08-27. Un precedent se verifie sur SA plateforme.
         frameworks(["UIKit", "QuartzCore", "OpenGLES", "AVFoundation", "Metal", "AudioToolbox", "CoreAudio"])
-        iosbundleid("com.nkentseu.nkludo")
+        iosbundleid("com.rihen.foodhunt")
         iosversion("1.0")
         iosminsdk("14.0")
         iosbuildnumber(1)
@@ -134,7 +134,7 @@ with project("FoodHunt"):
     with filter("system:HarmonyOS"):
         windowedapp()
         usetoolchain("ohos-ndk")
-        harmonybundlename("com.nkentseu.nkludo")
+        harmonybundlename("com.rihen.foodhunt")
         harmonyminsdk(12)
         harmonytargetapi(12)
         # PORTRAIT, exactement comme sur Android (androidscreenorientation
@@ -166,8 +166,8 @@ with project("FoodHunt"):
         usetoolchain("ohos-ndk")
 
     with filter("system:Android"):
-        androidapplicationid("com.rihen.monapp")
+        androidapplicationid("com.rihen.foodhunt")
         androidminsdk(24)
-        androidtargetsdk(31)
-        androidcompilesdk(31)
-        androidabis(["arm64-v8a", "x86_64"])
+        androidtargetsdk(34)
+        androidcompilesdk(34)
+        androidabis(["arm64-v8a"])  # la seule ABI du kit

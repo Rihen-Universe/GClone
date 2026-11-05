@@ -1,0 +1,84 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# Construit FoodHunt avec le kit NKCanvas publié, sur les serveurs de GitHub : les plateformes que Windows ne construit
+# pas (Linux, macOS, iOS), et Android pour éprouver le kit publié loin de la machine qui l'a fabriqué.
+# Lancement à la main seulement : gh workflow run construire-foodhunt.yml
+name: construire-foodhunt
+
+on:
+  workflow_dispatch:
+
+env:
+  KITS: https://github.com/Rihen-Universe/Nkentseu-Kits/releases/download/kits-canvas-2026-11-04
+
+jobs:
+  foodhunt:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nom: linux-x86_64
+            runner: ubuntu-24.04
+            plateforme: Linux-x86_64
+            kit: NKCanvas-kit-linux-x86_64.zip
+          - nom: macos-arm64
+            runner: macos-latest
+            plateforme: macOS-arm64
+            kit: NKCanvas-kit-macos-arm64.zip
+          - nom: macos-x86_64
+            runner: macos-15-intel
+            plateforme: macOS-x86_64
+            kit: NKCanvas-kit-macos-x86_64.zip
+          - nom: ios-arm64
+            runner: macos-latest
+            plateforme: iOS-arm64
+            kit: NKCanvas-kit-ios-arm64.zip
+          - nom: android-arm64
+            runner: ubuntu-24.04
+            plateforme: Android-arm64
+            kit: NKCanvas-kit-Android-arm64.zip
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      PYTHONPATH: ${{ github.workspace }}/jenga-src
+    steps:
+      - name: Dépôt GClone
+        uses: actions/checkout@v4
+
+      - name: Jenga 2.10.0, celui qui a fabriqué les kits
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: v2.10.0
+          path: jenga-src
+
+      - name: Dépendances Linux (X11, GL, ALSA)
+        if: matrix.nom == 'linux-x86_64'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libx11-dev libxrandr-dev libxext-dev libgl1-mesa-dev libasound2-dev
+
+      # Le même emplacement que sur nos machines : ../Kits, à côté du dépôt (GClone.jenga : kitpaths("../Kits")).
+      - name: Kit NKCanvas publié
+        run: |
+          mkdir -p ../Kits
+          curl -sSL --fail -o kit.zip "$KITS/${{ matrix.kit }}"
+          unzip -q kit.zip -d ../Kits
+          grep -E "construit le|Cibles" ../Kits/NKCanvas/KIT.txt
+
+      - name: Construire FoodHunt
+        run: python3 -m Jenga build --target FoodHunt --config Release --platform "${{ matrix.plateforme }}" --no-daemon
+
+      - name: Le programme existe
+        run: |
+          find Build/Bin -type f \( -name 'FoodHunt' -o -name 'FoodHunt.apk' -o -name 'FoodHunt.ipa' \) -print | tee produits.txt
+          test -s produits.txt || find Build/Bin -path '*FoodHunt*' -print | head -40
+          test -s produits.txt
+
+      - name: Artefact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: foodhunt-${{ matrix.nom }}
+          path: Build/Bin/
+          if-no-files-found: warn

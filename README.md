@@ -9,8 +9,9 @@ sur les briques de Nkentseu (mathématiques, images, dessin, recherche de chemin
 ## Ce qu'il faut
 
 - **NKCode 1.5.6** ou plus (son Jenga embarqué), ou **Jenga 2.9** ou plus.
-- **Le kit NKCanvas de Nkentseu**, à décompresser dans `Kits/` (on obtient `Kits/NKCanvas/`). Il est publié
-  dans [Nkentseu-Kits](https://github.com/Rihen-Universe/Nkentseu-Kits/releases/tag/kits-canvas-2026-11-04), une
+- **Le kit NKCanvas de Nkentseu**, à décompresser dans un dossier `Kits/` **à côté** du dossier `GClone` (on obtient
+  `../Kits/NKCanvas/`) : plusieurs applications peuvent ainsi le partager. Il est publié dans
+  [Nkentseu-Kits](https://github.com/Rihen-Universe/Nkentseu-Kits/releases/tag/kits-canvas-2026-11-04), une
   archive par plateforme (sous Windows : `NKCanvas-kit-Windows-x86_64.zip`).
   Le kit ne va pas dans ce dépôt : ce sont des bibliothèques précompilées.
   **Attention** : FoodHunt utilise des briques ajoutées à Nkentseu le 04/11/2026 (`NkSpriteSheet`,

@@ -1,0 +1,71 @@
+# AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+# Lance FoodHunt sur un émulateur Android des serveurs de GitHub et rapporte une capture et les journaux.
+# Le paquet est en arm64 : une image x86_64 d'API 30 sait le traduire. Lancement à la main :
+#   gh workflow run essai-android.yml
+name: essai-android
+
+on:
+  workflow_dispatch:
+
+jobs:
+  emulateur:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PYTHONPATH: ${{ github.workspace }}/jenga-src
+      KITS: https://github.com/Rihen-Universe/Nkentseu-Kits/releases/download/kits-canvas-2026-11-04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Jenga
+        uses: actions/checkout@v4
+        with:
+          repository: Rihen-Universe/Jenga
+          ref: 6708b34ab0e98f994755215cd3ce82efa6f41a21
+          path: jenga-src
+
+      - name: Kit NKCanvas publié
+        run: |
+          mkdir -p ../Kits
+          curl -sSL --fail -o kit.zip "$KITS/NKCanvas-kit-Android-arm64.zip"
+          unzip -q kit.zip -d ../Kits
+
+      - name: Construire l'APK
+        run: |
+          python3 -m Jenga build --target FoodHunt --config Release --platform Android-arm64 --no-daemon
+          test -s Build/Bin/Release-Android/FoodHunt/FoodHunt.apk
+
+      - name: Autoriser KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Lancer sur l'émulateur
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim
+          script: |
+            mkdir -p essai
+            adb install -r Build/Bin/Release-Android/FoodHunt/FoodHunt.apk 2>&1 | tee essai/installation.txt
+            adb logcat -c
+            adb shell monkey -p com.rihen.foodhunt -c android.intent.category.LAUNCHER 1 2>&1 | tee essai/lancement.txt
+            sleep 25
+            adb exec-out screencap -p > essai/capture_25s.png
+            adb shell input tap 300 1400
+            sleep 15
+            adb exec-out screencap -p > essai/capture_40s.png
+            adb shell pidof com.rihen.foodhunt | tee essai/processus.txt || true
+            adb logcat -d > essai/logcat.txt
+
+      - name: Résultat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: essai-android
+          path: essai/
+          if-no-files-found: warn

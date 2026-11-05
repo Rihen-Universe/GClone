@@ -11,6 +11,14 @@ from Jenga.GlobalToolchains import RegisterJengaGlobalToolchains
 kitpaths("../Kits")
 loadkit("NKCanvas")
 
+# (05/11/2026) La clé de signature de Rihen, si cette machine la possède. Ailleurs (GitHub, un visiteur du dépôt), Jenga signe
+# avec une clé de test.
+try:
+    loadkit("SignatureRihen")
+except FileNotFoundError:
+    import builtins
+    builtins.signaturerihen = lambda *a, **k: None
+
 with workspace("GClone"):
     RegisterJengaGlobalToolchains()
 

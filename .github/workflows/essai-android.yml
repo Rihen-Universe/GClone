@@ -1,6 +1,6 @@
 # AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
 # Lance FoodHunt sur un émulateur Android des serveurs de GitHub et rapporte une capture et les journaux.
-# Le paquet est en arm64 : une image x86_64 d'API 30 sait le traduire. Lancement à la main :
+# Le paquet est en arm64 : une image x86_64 récente le traduit (l'API 30 refuse fcvtzs scalaire, 05/11/2026). Lancement à la main :
 #   gh workflow run essai-android.yml
 name: essai-android
 
@@ -50,7 +50,7 @@ jobs:
       - name: Lancer sur l'émulateur
         uses: reactivecircus/android-emulator-runner@v2
         with:
-          api-level: 30
+          api-level: 34
           target: google_apis
           arch: x86_64
           disable-animations: true

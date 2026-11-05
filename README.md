@@ -32,8 +32,8 @@ démarre dans la racine du dossier ouvert.
 
 ## Images
 
-Les aliments de `Resources/aliments_libres/` viennent de Fluent Emoji de Microsoft (licence MIT) : voir
-`Resources/aliments_libres/LICENCES.md`.
+Les aliments de `Resources/aliments_plats/` viennent de Fluent Emoji de Microsoft (licence MIT) : voir
+`Resources/aliments_plats/LICENCES.md`.
 
 ## Licence
 

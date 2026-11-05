@@ -59,9 +59,12 @@ inline void GameText(Dl& dl, float cx, float cy, float size, const char* t, cons
 // décalages suffisent tant que l'épaisseur reste petite devant la taille du texte (ici 7 % de la hauteur).
 inline void GameTextOutline(Dl& dl, float cx, float cy, float size, const char* t, const NkColor& c, const NkColor& outline) {
     if (!GameFont()) return;
-    const float o = NkMax(0.8f, size * 0.07f);
+    // Contour épais (10 % de la hauteur) puis texte ÉPAISSI : la police embarquée n'a pas de graisse, on la fabrique en posant
+    // le texte quatre fois, décalé de 1.8 % de la hauteur (Rodolf, 05/11 : « nombres trop fins »).
+    const float o = NkMax(1.4f, size * 0.10f), b = size * 0.018f;
     static const float dx[8] = {-1, 1, 0, 0, -.7f, .7f, -.7f, .7f}, dy[8] = {0, 0, -1, 1, -.7f, -.7f, .7f, .7f};
     for (int i = 0; i < 8; ++i) renderer::NkTexteCentreTaille(dl, GameFont(), cx + dx[i] * o, cy - size * .5f + dy[i] * o, t, outline, size);
+    for (int i = 0; i < 4; ++i) renderer::NkTexteCentreTaille(dl, GameFont(), cx + dx[i] * b, cy - size * .5f + dy[i] * b, t, c, size);
     renderer::NkTexteCentreTaille(dl, GameFont(), cx, cy - size * .5f, t, c, size);
 }
 

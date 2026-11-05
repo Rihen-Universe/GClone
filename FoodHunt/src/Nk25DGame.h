@@ -94,7 +94,7 @@ public:
         sc->camera.tilt = 0.85f;
         const float tilt = sc->camera.tilt;
         float cs = (float)(int)(540.f * 0.86f / b->gw), csH = (float)(int)(430.f / (b->gh * tilt + 0.8f));
-        b->cs = NkMax(4.f, NkMin(cs, csH)); b->ch = b->cs * 0.8f; b->ox = 0.f; b->oy = 0.f;
+        b->cs = NkMax(4.f, NkMin(cs, csH)); b->ch = b->cs * 0.45f; b->ox = 0.f; b->oy = 0.f;
         hx_ = b->gw * b->cs * .5f; hy_ = b->gh * b->cs + 5.4f * b->cs;
         Hole* h = sc->Add<Hole>(); h->x = hx_; h->y = hy_; h->rx = b->cs * 3.4f; h->ry = h->rx * 0.65f; holeRy_ = h->ry;
         antScale_ = b->cs / 17.f; nSlots_ = 5; rng_.Seed(1234567u + (uint32)levelNumber * 7919u);
@@ -289,7 +289,7 @@ private:
     // une colonne sur deux décalée d'une demi-hauteur (sqrt(3) R / 2), ce qui fait le quinconce du rayon de miel.
     static float RowStep() { return 1.7320508f * kHexR; }
     void HexPos(int c, int r, float& x, float& y) const {
-        x = LW_ * .5f + (c - 1.5f) * 1.5f * kHexR; y = LH_ - 268.f + RowStep() * r + ((c & 1) ? RowStep() * .5f : 0.f);
+        x = LW_ * .5f + (c - 1.5f) * 1.6f * kHexR; y = LH_ - 268.f + RowStep() * r + ((c & 1) ? RowStep() * .5f : 0.f);
     }
     float BtnX(int i) const { return LW_ * .5f + (i - 1.5f) * 118.f; }
     float BtnY() const { return LH_ - 46.f; }

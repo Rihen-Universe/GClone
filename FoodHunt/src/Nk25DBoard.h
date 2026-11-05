@@ -74,6 +74,19 @@ public:
         return np > 0;
     }
 
+    // ---- Grille EMBARQUÉE (05/11/2026) : les cases sont déjà faites, à leur taille exacte et dans les couleurs de la palette de
+    // jeu (tools/embarquer_niveaux.py). Aucun rééchantillonnage, aucune quantification : on copie.
+    // cases[y * w + x] = 255 (vide) ou l'indice dans `pal` ; pal[k] = indice dans GameColor.
+    bool LoadFromGrid(int w, int h, const unsigned char* cases, int nPal, const unsigned char* pal) {
+        if (w <= 0 || h <= 0 || nPal <= 0 || nPal > MAX_PAL) return false;
+        gw = w; gh = h; const int n = w * h;
+        c_.Resize(n); cool_.Resize(n); acc_.Clear();
+        np = nPal; for (int k = 0; k < nPal; ++k) palette[k] = GameColor(pal[k]);
+        for (int i = 0; i < n; ++i) { c_[i] = cases[i] == 255 ? EMPTY : (uint8)cases[i]; cool_[i] = 0; }
+        time_ = 0; Recount(); UpdateReach();
+        return true;
+    }
+
     // ---- Requêtes ---------------------------------------------------------------
     int   Remaining() const { int t = 0; for (int i = 0; i < np; ++i) t += left_[i]; return t; }
     int   Remaining(int color) const { return (color >= 0 && color < np) ? left_[color] : 0; }
@@ -205,7 +218,7 @@ public:
     // côté plus sombre, pour qu'un cube posé sur le plateau et un cube porté par une fourmi se ressemblent.
     void DrawPiece(Dl& dl, const NkView25D& cam, int i) const override {
         int cx = i % gw, cy = i / gw; NkColor col = palette[c_[i]];
-        float x0 = ox + cx * cs, y0 = oy + cy * cs, g = 0.3f;
+        float x0 = ox + cx * cs, y0 = oy + cy * cs, g = 0.4f;
         if (At(cx, cy + 1) == EMPTY) {
             NkVec2f F[4] = { cam.Project(x0 + g, y0 + cs, 0), cam.Project(x0 + cs - g, y0 + cs, 0),
                              cam.Project(x0 + cs - g, y0 + cs, ch), cam.Project(x0 + g, y0 + cs, ch) };
@@ -213,7 +226,7 @@ public:
             NkVec2f B[4] = { F[0], F[1], cam.Project(x0 + cs - g, y0 + cs, ch * .34f), cam.Project(x0 + g, y0 + cs, ch * .34f) };
             dl.AddConvexPolyFilled(B, 4, col.Shade(0.56f));                  // bande basse : ombre de contact remontée
         }
-        const float c = cs * 0.16f, b = cs * 0.20f, cb = c * 0.55f;
+        const float c = cs * 0.05f, b = cs * 0.15f, cb = c * 0.6f;             // coins presque droits (5 % de la case), bevel mince
         NkVec2f T[8] = { cam.Project(x0 + g + c, y0, ch), cam.Project(x0 + cs - g - c, y0, ch), cam.Project(x0 + cs - g, y0 + c, ch),
                          cam.Project(x0 + cs - g, y0 + cs - c, ch), cam.Project(x0 + cs - g - c, y0 + cs, ch), cam.Project(x0 + g + c, y0 + cs, ch),
                          cam.Project(x0 + g, y0 + cs - c, ch), cam.Project(x0 + g, y0 + c, ch) };
@@ -221,7 +234,7 @@ public:
         NkVec2f I[8] = { cam.Project(x0 + b + cb, y0 + b, ch), cam.Project(x0 + cs - b - cb, y0 + b, ch), cam.Project(x0 + cs - b, y0 + b + cb, ch),
                          cam.Project(x0 + cs - b, y0 + cs - b - cb, ch), cam.Project(x0 + cs - b - cb, y0 + cs - b, ch), cam.Project(x0 + b + cb, y0 + cs - b, ch),
                          cam.Project(x0 + b, y0 + cs - b - cb, ch), cam.Project(x0 + b, y0 + b + cb, ch) };
-        dl.AddConvexPolyFilled(I, 8, col.Lerp(NkColor(255, 255, 255, 255), 0.18f));
+        dl.AddConvexPolyFilled(I, 8, col.Lerp(NkColor(255, 255, 255, 255), 0.10f));
         // Occlusion : filet sombre sur chaque arête partagée avec un voisin (haut, droite, bas, gauche).
         const NkColor crease(0, 0, 0, 34);
         const float lw = 0.9f * cam.Scale();
@@ -230,7 +243,7 @@ public:
         if (At(cx, cy + 1) != EMPTY) dl.AddLine(T[4], T[5], crease, lw);
         if (At(cx - 1, cy) != EMPTY) dl.AddLine(T[6], T[7], crease, lw);
         // Reflet sur l'arête haute exposée.
-        if (At(cx, cy - 1) == EMPTY) dl.AddLine(NkVec2f(T[7].x + cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkVec2f(T[2].x - cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkColor(255, 255, 255, 120), 1.1f * cam.Scale());
+        { dl.AddLine(NkVec2f(T[7].x + cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkVec2f(T[2].x - cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkColor(255, 255, 255, 150), 1.1f * cam.Scale()); }   // liseré clair sur l'arête haute de CHAQUE cube
     }
 
     // Ancien dessin du cube (04/11/2026), gardé et non appelé : « on ne supprime pas ». Raison du retrait : dessus

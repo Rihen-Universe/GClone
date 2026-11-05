@@ -24,14 +24,14 @@ namespace pal {
 }
 
 // ---- LA PALETTE DE JEU (Rodolf, 05/11 : « les couleurs ne vont pas ») --------------------------------------------
-// Dix couleurs vives et bien SÉPARÉES. Chaque couleur d'une image de niveau est ramenée à la plus proche de celles-ci
+// Douze couleurs (creme et brun clair ajoutes le 05/11 pour les pates et les croutes), vives et bien SÉPARÉES. Chaque couleur d'une image de niveau est ramenée à la plus proche de celles-ci
 // (Board::LoadFromImage) : un niveau n'a donc jamais deux couleurs proches, et la MÊME couleur exacte sert au cube, à la
 // fourmi, au panier et à l'alvéole. Le blanc et le brun sombre y sont pour les images claires et sombres.
-constexpr int kNbGameColors = 10;
+constexpr int kNbGameColors = 12;
 inline NkColor GameColor(int i) {
     static const unsigned char t[kNbGameColors][3] = {
         {228, 52, 52}, {255, 146, 30}, {250, 214, 40}, {84, 190, 62}, {28, 190, 180},
-        {52, 112, 232}, {146, 76, 204}, {250, 122, 190}, {245, 245, 240}, {104, 66, 40} };
+        {52, 112, 232}, {146, 76, 204}, {250, 122, 190}, {245, 245, 240}, {104, 66, 40}, {252, 228, 176}, {196, 138, 80} };   // 8 blanc, 9 brun sombre (contour), 10 creme, 11 brun clair
     i = i < 0 ? 0 : (i >= kNbGameColors ? kNbGameColors - 1 : i);
     return NkColor(t[i][0], t[i][1], t[i][2], 255);
 }
@@ -171,8 +171,8 @@ inline void DrawPlate(Dl& dl, float x0, float y0, float x1, float y1) {
     dl.AddRectFilled(nkgui::NkRect(x0, y0, w, h), NkColor(250, 246, 238, 255), r);                        // bord
     dl.AddRectFilled(nkgui::NkRect(x0 + 6.f, y0 + 4.f, w - 12.f, h * .45f), NkColor(255, 255, 255, 120), r * .8f);   // reflet
     dl.AddRect(nkgui::NkRect(x0 + 11.f, y0 + 11.f, w - 22.f, h - 22.f), pal::Moutarde(), 3.f, r - 10.f);  // liseré
-    dl.AddRectFilled(nkgui::NkRect(x0 + 18.f, y0 + 18.f, w - 36.f, h - 36.f), NkColor(236, 230, 218, 255), r - 16.f);
-    dl.AddRectFilled(nkgui::NkRect(x0 + 24.f, y0 + 26.f, w - 48.f, h - 52.f), NkColor(244, 239, 229, 255), r - 22.f);   // creux
+    dl.AddRectFilled(nkgui::NkRect(x0 + 18.f, y0 + 18.f, w - 36.f, h - 36.f), NkColor(150, 178, 190, 255), r - 16.f);
+    dl.AddRectFilled(nkgui::NkRect(x0 + 24.f, y0 + 26.f, w - 48.f, h - 52.f), NkColor(166, 192, 203, 255), r - 22.f);   // creux : teinte MOYENNE et douce où le blanc ET le noir se lisent
 }
 
 // ---- Panier d'osier --------------------------------------------------------------------------------------------
@@ -211,8 +211,8 @@ inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint
     }
     dl.AddEllipseFilled(NkVec2f(cx, cy - .46f * H), W * .52f, H * .13f, dark);                      // bord ovale
     dl.AddEllipseFilled(NkVec2f(cx, cy - .46f * H + 1.f), W * .44f, H * .085f, dark.Shade(0.45f));  // intérieur sombre
-    Pill(dl, cx, cy + .12f * H, W * .56f, H * .38f, pal::Creme(), H * .12f);                        // étiquette
-    GameTextOutline(dl, cx, cy + .11f * H, H * .36f, nb, pal::Brun(), NkColor(255, 247, 228, 255));
+    Pill(dl, cx, cy + .12f * H, W * .62f, H * .46f, pal::Brun(), H * .14f);                        // étiquette sombre : le nombre blanc contouré se lit sur toute teinte
+    GameTextOutline(dl, cx, cy + .11f * H, H * .46f, nb, NkColor(255, 255, 255, 255), NkColor(40, 26, 18, 255));
 }
 
 // ---- Alvéole du rayon de miel ----------------------------------------------------------------------------------
@@ -222,22 +222,26 @@ inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint
 // l'écrase en largeur (bascule de la révélation d'un mystère).
 inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c, const char* txt, bool dispo, bool mystere, bool joue, float k = 1.f, float sx = 1.f) {
     NkColor base = mystere ? MysteryColor() : c;
-    if (!dispo) base = base.Lerp(NkColor(246, 242, 232, 255), 0.50f);
-    R *= k;
-    if (joue) HexPolyFlat(dl, cx, cy + R * .02f, R * 1.0f, NkColor(255, 255, 255, 235), sx);
-    const float r = joue ? R * .93f : R * .96f;
-    HexPolyFlat(dl, cx, cy + R * .10f, r, base.Shade(0.60f), sx);                                   // lèvre
-    HexPolyFlat(dl, cx, cy, r, base.Shade(0.84f), sx);
-    HexPolyFlat(dl, cx, cy - R * .04f, r * .88f, base, sx);
-    HexPolyFlat(dl, cx, cy - R * .12f, r * .64f, Lighten(base, mystere ? 0.10f : 0.20f), sx);
-    if (dispo) {                                                                                    // reflet : arête haute
-        const float h = r * .866f;
-        dl.AddLine(NkVec2f(cx - r * .38f * sx, cy - h * .80f), NkVec2f(cx + r * .30f * sx, cy - h * .80f), NkColor(255, 255, 255, 170), R * .08f);
+    // DISPONIBLE : couleur pleine, plus marquée (bord brun, relief), relief (lèvre, face, reflet), bord brun marqué : même un blanc existe.
+    // NON DISPONIBLE : teinte pâlie, plus petite (x 0.84), PLATE (une seule face, pas de lèvre ni de reflet). L'écart saute aux yeux.
+    if (!dispo) base = base.Lerp(NkColor(246, 242, 232, 255), 0.55f);
+    R *= k * (dispo ? 0.96f : 0.82f);
+    const NkColor bord = pal::Brun();
+    dl.AddEllipseFilled(NkVec2f(cx + R * .06f, cy + R * .86f), R * .90f * sx, R * .22f, NkColor(30, 20, 10, dispo ? 70 : 40));   // ombre portée (le blanc existe)
+    if (dispo) {
+        if (joue) HexPolyFlat(dl, cx, cy, R * 1.08f, NkColor(255, 255, 255, 240), sx);              // anneau de sélection
+        HexPolyFlat(dl, cx, cy + R * .10f, R, bord.Shade(0.8f), sx);                                // lèvre sombre
+        HexPolyFlat(dl, cx, cy, R * .98f, bord, sx);                                                // bord brun marqué
+        HexPolyFlat(dl, cx, cy - R * .02f, R * .90f, base, sx);
+        HexPolyFlat(dl, cx, cy - R * .08f, R * .66f, Lighten(base, mystere ? 0.10f : 0.22f), sx);
+        const float h = R * .866f;
+        dl.AddLine(NkVec2f(cx - R * .38f * sx, cy - h * .78f), NkVec2f(cx + R * .30f * sx, cy - h * .78f), NkColor(255, 255, 255, 190), R * .08f);
+    } else {
+        HexPolyFlat(dl, cx, cy, R * .98f, base.Shade(0.78f), sx);
+        HexPolyFlat(dl, cx, cy, R * .90f, base, sx);
     }
-    int lum = (base.r * 3 + base.g * 6 + base.b) / 10;
-    NkColor tc = lum > 175 ? pal::Brun() : NkColor(255, 255, 255, 255), oc = lum > 175 ? NkColor(255, 255, 255, 200) : NkColor(40, 28, 24, 220);
-    if (!dispo) { tc.a = 190; oc.a = 140; }
-    if (sx > 0.35f && k > 0.5f) GameTextOutline(dl, cx, cy - R * .02f, R * .72f, txt, tc, oc);
+    // Nombre : toujours blanc, GRAS (épaissi), contour sombre épais, quelle que soit la teinte.
+    if (sx > 0.35f && k > 0.5f) GameTextOutline(dl, cx, cy - R * .02f, R * (dispo ? 0.86f : 0.70f), txt, NkColor(255, 255, 255, dispo ? 255 : 230), NkColor(40, 26, 18, dispo ? 255 : 200));
 }
 // Alvéole vide (place du rayon sans bloc) : un creux ambré à peine visible, pour que le rayon reste lisible.
 inline void DrawEmptyCell(Dl& dl, float cx, float cy, float R) {

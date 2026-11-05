@@ -59,3 +59,9 @@ OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
 
 Les planches de Rodolf (« Food Scavenger Hunt », Envato) ne sont PAS dans ce dossier : usage personnel, lues depuis
 son propre dossier seulement, jamais copiées ici.
+
+## Embarquement dans l'exécutable (05/11/2026)
+
+`FoodHunt/tools/embarquer_niveaux.py` recadre ces 25 images, les réduit à 96 px et les range, triées du plus simple au plus
+dur, dans `FoodHunt/src/Nk25DNiveauxData.h` : le jeu ne lit plus aucun fichier à l'exécution. Les images dérivées restent
+sous la même licence MIT (Microsoft Corporation) reproduite ci-dessus.

@@ -89,8 +89,13 @@ public:
     }
     // ---- Accessibilité : un bloc est ciblable si l'une de ses 4 voisines est une cellule vide reliée à l'extérieur
     // (4-connexité à travers les cellules vides). Les poches fermées (yeux retirés...) ne comptent pas.
-    bool  Accessible(int i) const { return acc_.Size() ? acc_[i] != 0 : Exposed(i); }
+    // L'accessibilité est TOUJOURS À JOUR quand on la lit (règle de Rodolf du 05/11/2026 : « pas de valeur vieille de
+    // 0,2 s ») : retirer un bloc lève le drapeau `dirty_`, et la première lecture suivante refait le remplissage.
+    // On ne le refait donc qu'une fois par changement, jamais à chaque lecture.
+    void  EnsureReach() const { if (dirty_) const_cast<Board*>(this)->UpdateReach(); }
+    bool  Accessible(int i) const { EnsureReach(); return acc_.Size() ? acc_[i] != 0 : Exposed(i); }
     void  UpdateReach() {
+        dirty_ = false;
         int n = gw * gh; if (!n) return;
         acc_.Resize(n);
         NkVector<uint8> reach; reach.Resize(n); NkVector<int> st;               // st : pile du remplissage
@@ -113,7 +118,7 @@ public:
     int FindPathToPoint(float sx, float sy, float tx, float ty, NkVec2f* out, int maxN) const { return Search(sx, sy, -1, tx, ty, out, maxN); }
     bool  Present(int i, int color) const { return i >= 0 && i < gw * gh && c_[i] == color; }
     void  Cooldown(int i, float sec) { if (i >= 0 && i < gw * gh) cool_[i] = time_ + sec; }
-    int   Take(int i) { int c = c_[i]; if (c != EMPTY) { c_[i] = EMPTY; --left_[c]; } return c; }   // retire un bloc
+    int   Take(int i) { int c = c_[i]; if (c != EMPTY) { c_[i] = EMPTY; --left_[c]; dirty_ = true; } return c; }   // retire un bloc
     void  ClosestOnCell(int i, float px, float py, float& qx, float& qy) const {
         float x0 = CellX(i) - cs * .5f, y0 = CellY(i) - cs * .5f;
         qx = NkClamp(px, x0, x0 + cs); qy = NkClamp(py, y0, y0 + cs);
@@ -125,25 +130,31 @@ public:
     // Collision cercle / cases pleines : pour chaque case voisine, on cherche le point de la case le plus proche
     // du centre (borne du centre dans le carré) ; si la distance est inférieure au rayon, on repousse le cercle
     // le long de la normale (centre - point) de la profondeur de pénétration (r - d).
+    // COLLISION FOURMI / CUBES. Une fourmi de rayon 8 * cs / 11 faisait 1,45 case de large : elle ne tenait pas dans un couloir
+    // d'une case, se coinçait contre les coins, et le banc mesurait des blocages définitifs (d'où un drapeau resté un temps à
+    // faux, les fourmis marchant alors sur les cubes). À cs / 17 (Gameplay::Init) elle fait 0,94 case et passe : collision
+    // active, 25 niveaux sur 25 au banc. Si on regrossit les fourmis, repasser le banc.
+    bool collideAnts = true;
     bool ResolveCircle(float& cx, float& cy, float r, float& nx, float& ny) override {
+        if (!collideAnts) return false;
         r = NkMin(r, cs * 0.42f);                                         // rayon de collision réduit : passe dans les rainures d'1 cellule
         bool hit = false;
         int ix0 = (int)((cx - r - ox) / cs) - 1, ix1 = (int)((cx + r - ox) / cs) + 1;
         int iy0 = (int)((cy - r - oy) / cs) - 1, iy1 = (int)((cy + r - oy) / cs) + 1;
         for (int pass = 0; pass < 2; ++pass)
-        for (int y = NkMax(iy0, 0); y <= iy1 && y < gh; ++y) for (int x = NkMax(ix0, 0); x <= ix1 && x < gw; ++x) {
-            if (c_[y * gw + x] == EMPTY) continue;
-            float qx, qy; ClosestOnCell(y * gw + x, cx, cy, qx, qy);
-            float dx = cx - qx, dy = cy - qy, d = NkVec2f(dx, dy).Len();
-            if (d >= r) continue;
-            if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
-            else { float ex = cx - CellX(y * gw + x), ey = cy - CellY(y * gw + x), l = NkMax(1e-4f, NkVec2f(ex, ey).Len()); nx = ex / l; ny = ey / l; d = 0; }
-            cx += nx * (r - d); cy += ny * (r - d); hit = true;
-        }
+            for (int y = NkMax(iy0, 0); y <= iy1 && y < gh; ++y) for (int x = NkMax(ix0, 0); x <= ix1 && x < gw; ++x) {
+                if (c_[y * gw + x] == EMPTY) continue;
+                float qx, qy; ClosestOnCell(y * gw + x, cx, cy, qx, qy);
+                float dx = cx - qx, dy = cy - qy, d = NkVec2f(dx, dy).Len();
+                if (d >= r) continue;
+                if (d > 1e-4f) { nx = dx / d; ny = dy / d; }
+                else { float ex = cx - CellX(y * gw + x), ey = cy - CellY(y * gw + x), l = NkMax(1e-4f, NkVec2f(ex, ey).Len()); nx = ex / l; ny = ey / l; d = 0; }
+                cx += nx * (r - d); cy += ny * (r - d); hit = true;
+            }
         return hit;
     }
 
-    void DrawShadow(Dl& dl, const Camera& cam) const override {   // ombre portée des cubes de bord
+    void DrawShadow(Dl& dl, const NkView25D& cam) const override {   // ombre portée des cubes de bord
         if (c_.Size() == 0) return;
         for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {
             if (c_[cy * gw + cx] == EMPTY) continue;
@@ -152,16 +163,67 @@ public:
             NkVec2f q[4] = { cam.ShadowPos(x0, y0, ch), cam.ShadowPos(x0 + cs, y0, ch), cam.ShadowPos(x0 + cs, y0 + cs, ch), cam.ShadowPos(x0, y0 + cs, ch) };
             dl.AddConvexPolyFilled(q, 4, NkColor(0, 0, 0, 45));
         }
+        // Ombre de CONTACT : sous chaque arête avant exposée, une fine bande sombre sur l'assiette (là où le cube
+        // touche le plateau, la lumière ne passe pas). Elle ancre le cube au sol et l'empêche de « flotter ».
+        for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {
+            if (c_[cy * gw + cx] == EMPTY || At(cx, cy + 1) != EMPTY) continue;
+            float x0 = ox + cx * cs, y1 = oy + (cy + 1) * cs, d = cs * 0.30f;
+            NkVec2f q[4] = { cam.Project(x0 - 1.f, y1, 0), cam.Project(x0 + cs + 1.f, y1, 0), cam.Project(x0 + cs + 2.f, y1 + d, 0), cam.Project(x0 - 2.f, y1 + d, 0) };
+            dl.AddConvexPolyFilled(q, 4, NkColor(40, 30, 20, 50));
+        }
     }
 
-    void Emit(RenderQueue& q, const Camera& cam) const override {
+    void Emit(RenderQueue& q, const NkView25D& cam) const override {
         if (c_.Size() == 0) return;
         for (int i = 0; i < gw * gh; ++i)
             if (c_[i] != EMPTY) q.Custom(cam.Depth(0, CellY(i), ch), static_cast<const ICustomDraw*>(this), i);
     }
 
-    // Cube axis-aligned : dessus + face avant (les côtés sont de profil donc invisibles)
-    void DrawPiece(Dl& dl, const Camera& cam, int i) const override {
+    // Cube « tendre » (05/11/2026), toujours aligné sur les axes : la caméra regarde le long de y, donc les faces
+    // gauche et droite sont de profil (invisibles) et il reste le DESSUS et la face AVANT. Pour qu'il ne paraisse
+    // pas plat, on empile cinq effets, du dessous vers le dessus :
+    //   1. face avant en deux bandes : le tiers bas est plus sombre (l'ombre de l'assiette remonte sur le cube) ;
+    //   2. dessus en OCTOGONE (coins coupés) : le cube paraît arrondi, comme du fromage ou de la gelée ;
+    //   3. un octogone intérieur plus clair (biseau) : la face est légèrement bombée ;
+    //   4. OCCLUSION entre voisins : un filet sombre sur chaque arête de dessus partagée avec un autre cube
+    //      (la fente où la lumière n'entre pas) ;
+    //   5. REFLET : un filet clair sur l'arête HAUTE, seulement si aucun cube n'est derrière (arête exposée,
+    //      donc éclairée de plein fouet par la lumière venue du haut).
+    // La teinte du dessus (x 1.04) et de la face avant (x 0.70) suit la même loi que Box::DrawBody : dessus plus clair,
+    // côté plus sombre, pour qu'un cube posé sur le plateau et un cube porté par une fourmi se ressemblent.
+    void DrawPiece(Dl& dl, const NkView25D& cam, int i) const override {
+        int cx = i % gw, cy = i / gw; NkColor col = palette[c_[i]];
+        float x0 = ox + cx * cs, y0 = oy + cy * cs, g = 0.3f;
+        if (At(cx, cy + 1) == EMPTY) {
+            NkVec2f F[4] = { cam.Project(x0 + g, y0 + cs, 0), cam.Project(x0 + cs - g, y0 + cs, 0),
+                             cam.Project(x0 + cs - g, y0 + cs, ch), cam.Project(x0 + g, y0 + cs, ch) };
+            dl.AddConvexPolyFilled(F, 4, col.Shade(0.72f));
+            NkVec2f B[4] = { F[0], F[1], cam.Project(x0 + cs - g, y0 + cs, ch * .34f), cam.Project(x0 + g, y0 + cs, ch * .34f) };
+            dl.AddConvexPolyFilled(B, 4, col.Shade(0.56f));                  // bande basse : ombre de contact remontée
+        }
+        const float c = cs * 0.16f, b = cs * 0.20f, cb = c * 0.55f;
+        NkVec2f T[8] = { cam.Project(x0 + g + c, y0, ch), cam.Project(x0 + cs - g - c, y0, ch), cam.Project(x0 + cs - g, y0 + c, ch),
+                         cam.Project(x0 + cs - g, y0 + cs - c, ch), cam.Project(x0 + cs - g - c, y0 + cs, ch), cam.Project(x0 + g + c, y0 + cs, ch),
+                         cam.Project(x0 + g, y0 + cs - c, ch), cam.Project(x0 + g, y0 + c, ch) };
+        dl.AddConvexPolyFilled(T, 8, col.Shade(1.04f));
+        NkVec2f I[8] = { cam.Project(x0 + b + cb, y0 + b, ch), cam.Project(x0 + cs - b - cb, y0 + b, ch), cam.Project(x0 + cs - b, y0 + b + cb, ch),
+                         cam.Project(x0 + cs - b, y0 + cs - b - cb, ch), cam.Project(x0 + cs - b - cb, y0 + cs - b, ch), cam.Project(x0 + b + cb, y0 + cs - b, ch),
+                         cam.Project(x0 + b, y0 + cs - b - cb, ch), cam.Project(x0 + b, y0 + b + cb, ch) };
+        dl.AddConvexPolyFilled(I, 8, col.Shade(1.17f));
+        // Occlusion : filet sombre sur chaque arête partagée avec un voisin (haut, droite, bas, gauche).
+        const NkColor crease(0, 0, 0, 34);
+        const float lw = 0.9f * cam.Scale();
+        if (At(cx, cy - 1) != EMPTY) dl.AddLine(T[7], T[0], crease, lw);
+        if (At(cx + 1, cy) != EMPTY) dl.AddLine(T[2], T[3], crease, lw);
+        if (At(cx, cy + 1) != EMPTY) dl.AddLine(T[4], T[5], crease, lw);
+        if (At(cx - 1, cy) != EMPTY) dl.AddLine(T[6], T[7], crease, lw);
+        // Reflet sur l'arête haute exposée.
+        if (At(cx, cy - 1) == EMPTY) dl.AddLine(NkVec2f(T[7].x + cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkVec2f(T[2].x - cs * .1f * cam.Scale(), T[0].y + 0.9f * cam.Scale()), NkColor(255, 255, 255, 120), 1.1f * cam.Scale());
+    }
+
+    // Ancien dessin du cube (04/11/2026), gardé et non appelé : « on ne supprime pas ». Raison du retrait : dessus
+    // carré sans reflet ni occlusion, le plateau paraissait plat.
+    void DrawPieceAncien(Dl& dl, const NkView25D& cam, int i) const {
         int cx = i % gw, cy = i / gw; NkColor col = palette[c_[i]];
         float x0 = ox + cx * cs, y0 = oy + cy * cs, g = 0.3f;   // jeu en x seulement : pas de trait entre rangées
         if (At(cx, cy + 1) == EMPTY) {                                       // face avant visible seulement si rien devant
@@ -209,7 +271,7 @@ private:
     }
     void Recount() { for (int i = 0; i < MAX_PAL; ++i) left_[i] = 0; for (int i = 0; i < gw * gh; ++i) if (c_[i] != EMPTY) ++left_[c_[i]]; }
 
-    NkVector<uint8> c_; NkVector<float> cool_; NkVector<uint8> acc_; int left_[MAX_PAL] = {}; float time_ = 0;
+    NkVector<uint8> c_; NkVector<float> cool_; NkVector<uint8> acc_; int left_[MAX_PAL] = {}; float time_ = 0; bool dirty_ = false;
 };
 
 // =============================================================================
@@ -220,13 +282,31 @@ public:
     float rx = 22, ry = 14;
     Hole() { kind = KIND_HOLE; }
     void Update(float) override {}
-    void DrawShadow(Dl& dl, const Camera& cam) const override {
+    // FOURMILIÈRE (05/11/2026) : un monticule de terre à étages, des grains éparpillés autour et, au centre,
+    // l'ouverture sombre où les fourmis disparaissent. Quatre ellipses empilées, de plus en plus petites et claires
+    // et décalées vers le haut (la lumière vient du haut) donnent la bosse ; l'ouverture est une ellipse sombre
+    // posée en avant de la bosse, avec un cercle encore plus noir pour la profondeur. Les grains sont placés par une
+    // suite pseudo-aléatoire de graine fixe (donc identique à chaque trame, rien ne scintille).
+    void DrawShadow(Dl& dl, const NkView25D& cam) const override {
         NkVec2f c = cam.Project(x, y, 0);
-        dl.AddEllipseFilled(NkVec2f(c.x, c.y + 1.5f), rx + 3, ry + 3, NkColor(120, 80, 50, 255));
-        dl.AddEllipseFilled(c, rx, ry, NkColor(55, 35, 25, 255));
-        dl.AddEllipseFilled(NkVec2f(c.x, c.y - 2), rx * .7f, ry * .6f, NkColor(30, 18, 12, 255));
+        const float rx = this->rx * cam.Scale(), ry = this->ry * cam.Scale();     // les rayons du nid sont en unités de plan : on les passe en pixels
+        const float k = rx / 36.f;
+        dl.AddEllipseFilled(NkVec2f(c.x + rx * .08f, c.y + ry * .22f), rx * 1.42f, ry * 1.38f, NkColor(40, 60, 20, 60));          // ombre au sol
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y + ry * .08f), rx * 1.22f, ry * 1.18f, NkColor(138, 96, 60, 255));                      // jupe de terre
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y - ry * .06f), rx * 1.08f, ry * 1.04f, NkColor(171, 123, 80, 255));
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y - ry * .22f), rx * .92f, ry * .88f, NkColor(193, 146, 98, 255));
+        dl.AddEllipseFilled(NkVec2f(c.x - rx * .08f, c.y - ry * .38f), rx * .74f, ry * .66f, NkColor(210, 166, 118, 255));           // sommet éclairé
+        NkLcg32 r; r.Seed(77u);
+        for (int i = 0; i < 22; ++i) {                                                                                              // grains autour
+            float a = (float)r.NextUInt32(628) * 0.01f, d = 1.12f + (float)r.NextUInt32(40) * 0.01f, g = (1.1f + (float)r.NextUInt32(12) * 0.1f) * k;
+            int t = (int)r.NextUInt32(3); NkColor gc = t == 0 ? NkColor(150, 106, 68, 255) : (t == 1 ? NkColor(189, 143, 96, 255) : NkColor(120, 82, 52, 255));
+            dl.AddEllipseFilled(NkVec2f(c.x + NkCos(a) * rx * d, c.y + NkSin(a) * ry * d * 1.02f), g, g * .8f, gc);
+        }
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y + ry * .02f), rx * .58f, ry * .64f, NkColor(94, 62, 40, 255));                         // lèvre de l'ouverture
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y), rx * .52f, ry * .57f, NkColor(46, 28, 20, 255));                                      // ouverture
+        dl.AddEllipseFilled(NkVec2f(c.x, c.y - ry * .08f), rx * .36f, ry * .38f, NkColor(20, 11, 8, 255));                           // fond noir
     }
-    void Emit(RenderQueue&, const Camera&) const override {}
+    void Emit(RenderQueue&, const NkView25D&) const override {}
 };
 
 // =============================================================================

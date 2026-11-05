@@ -1,68 +1,194 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// main.cpp — Jeu complet : plateau de pixels 2.5D + stock + 5 slots + fourmis par couleur.
+// main.cpp — FoodHunt : plateau de cubes 2.5D, stock en rayon de miel, paniers, fourmis par couleur.
 // Migré le 04/11/2026 : l'application hérite de NkCanvasGuiApp (NKCanvas) et dessine sur un NkGuiDrawList ; la
-// police est celle, embarquée, de NKFont (plus aucun fichier Roboto) ; l'image est une NkImage.
+// police est celle, embarquée, de NKFont. Réécrit le 05/11/2026 : les vingt-cinq niveaux sont des images embarquées
+// (LevelLibrary), l'écran peut avoir n'importe quelle forme portrait, le bot est une option (--bot) et le banc
+// `--bot --verifier-niveaux` joue les vingt-cinq niveaux sans fenêtre.
+//
+// Options de la ligne de commande (toutes facultatives) :
+//   --bot                    le jeu joue seul (essais) ; sans cette option on joue au doigt ou à la souris
+//   --verifier-niveaux       (avec --bot) banc : joue les 25 niveaux, accéléré, SANS fenêtre ni GPU ; le code de sortie
+//                            est 0 si tout passe, sinon le nombre de niveaux en échec ; le rapport va dans un fichier
+//   --rapport=<fichier>      où écrire le rapport du banc (défaut : foodhunt_banc.txt)
+//   --casser-niveau=<n>      contre-épreuve : rend le niveau n injouable (aucun tiroir) ; le banc doit rougir
+//   --ancien-comportement    contre-épreuve : rétablit l'ancienne conduite des fourmis (naissance au nid, plusieurs blocs)
+//   --fenetre=<L>x<H>        taille de la fenêtre (essais d'écrans : 480x960, 1080x2400, 768x1024...)
+//   --niveau=<n>             démarre au niveau n (1..25) ; --avance=<s> simule s secondes de bot avant d'afficher
+//   --capture=<png> --capture-frame=<n>   (moteur) écrit une image de la trame n et sort
 #include "NKWindow/NKMain.h"
 #include "NKCanvas/App/NkCanvasGuiApp.h"
+#include "NKFileSystem/NkFile.h"
 #include "Nk25DGame.h"
+#include "Nk25DLevels.h"
 
 using namespace nkentseu;
 using namespace nkentseu::renderer;
 
-class AntDemo : public NkCanvasGuiApp {
+class FoodHunt : public NkCanvasGuiApp {
 public:
-    static constexpr float kW = 540.f, kH = 960.f;
-    static constexpr bool  kAutoPlay = true;      // bot : la démo tourne seule (mettre false pour jouer au doigt ou à la souris)
+    static constexpr float kRefW = 540.f, kRefH = 1000.f;       // taille LOGIQUE de référence (voir Nk25DGame.h)
+    static constexpr bool  kAutoPlay = false;                   // le bot n'est plus le comportement par défaut (--bot)
 
-    AntDemo() {
-        Config().title = "Ants 2.5D"; Config().width = (int)kW; Config().height = (int)kH;
-        Config().clearColor = NkColor2D(222, 184, 135, 255);
+    FoodHunt() {
+        Config().title = "FoodHunt"; Config().width = 480; Config().height = 960;
+        Config().clearColor = NkColor2D(150, 200, 100, 255);
     }
 
 protected:
+    // ---- Ligne de commande : le banc répond AVANT toute fenêtre ---------------------------------
+    static bool StartsWith(const NkString& s, const char* p) { return s.StartsWith(p); }
+    static int  ParseInt(const char* p, int def) { if (!p || !*p) return def; int v = 0; for (; *p >= '0' && *p <= '9'; ++p) v = v * 10 + (*p - '0'); return v; }
+
+    NkOptional<int> OnCommandLine(const NkVector<NkString>& args) override {
+        for (usize i = 0; i < args.Size(); ++i) {
+            const NkString& a = args[i];
+            if (a == "--bot") mBot = true;
+            else if (a == "--verifier-niveaux") mBanc = true;
+            else if (a == "--ancien-comportement") mLegacy = true;
+            else if (StartsWith(a, "--casser-niveau=")) mCasser = ParseInt(a.CStr() + 16, 0);
+            else if (StartsWith(a, "--rapport=")) mRapport = NkString(a.CStr() + 10);
+            else if (StartsWith(a, "--niveau=")) { mStart = math::NkClamp(ParseInt(a.CStr() + 9, 1), 1, 25) - 1; mSolo = true; }
+            else if (StartsWith(a, "--avance=")) mAvance = (float)ParseInt(a.CStr() + 9, 0);
+            else if (StartsWith(a, "--fenetre=")) { const char* q = a.CStr() + 10; int w = ParseInt(q, 480); while (*q >= '0' && *q <= '9') ++q; if (*q == 'x') ++q; int h = ParseInt(q, 960); Config().width = (uint32)w; Config().height = (uint32)h; }
+        }
+        if (mBanc && mBot) return NkOptional<int>(RunBench());
+        return NkOptional<int>();
+    }
+
+    // La police suit l'échelle de l'écran : le texte est dessiné à ~24 px logiques puis mis à l'échelle par le même facteur.
+    float32 TaillePoliceCorps(const NkLayoutInfo& lay) const noexcept override {
+        float s = nk25d::NkView25D::ScaleFor((float)lay.width, (float)lay.height, kRefW, kRefH); float px = 24.f * s; return px < 12.f ? 12.f : (px > 72.f ? 72.f : px);
+    }
+
     // Appelé par NkCanvasGuiApp::OnInit une fois le contexte graphique et les polices prêts.
     bool OnGuiInit() override {
         nk25d::GameFont() = FontBody();                                     // police embarquée de NKFont
-        mBoard = mScene.Add<nk25d::Board>();
-        NkImage img = MakeTestImage(160);
-        if (!mBoard->LoadFromImage(img, /*blocs en largeur*/ 48, /*couleurs*/ 6, /*autoBg*/ false)) return false;
-        mGame.level = 31;
-        mGame.Init(&mScene, mBoard, kW, kH);       // place caméra, plateau, trou, stock, slots
-        mGame.AutoPlay(kAutoPlay);
+        if (mLib.LoadEmbedded() <= 0) return false;
+        mLevel = math::NkClamp(mStart, 0, mLib.Count() - 1);
+        if (!StartLevel(mLevel)) return false;
+        if (mBot) mGame.AutoPlay(true);
+        if (mAvance > 0.f) {                                                // essais : avancer la partie avant la capture
+            mGame.AutoPlay(true); mGame.SetBotPeriod(0.3f);
+            for (float t = 0.f; t < mAvance && mGame.GetState() == nk25d::Gameplay::PLAYING; t += 1.f / 30.f) mGame.Tick(1.f / 30.f);
+            mGame.AutoPlay(mBot);
+        }
         return true;
     }
-    void OnTick(float32 dt) override { mGame.Tick(dt); }                    // gère vitesse x1/x2/x3, collisions, fourmis
-    void OnDraw(nkgui::NkGuiDrawList& dl) override {
-        mGame.DrawBackground(dl);                  // plateau clair
-        mScene.Render(dl);                         // blocs + fourmis triés par profondeur
-        mGame.DrawUI(dl);                          // slots, stock, boutons, textes
+    void OnTick(float32 dt) override {
+        mGame.Tick(dt);
+        if (mBot && mGame.GetState() != nk25d::Gameplay::PLAYING && mGame.EndTime() > 2.5f)          // le bot enchaîne les niveaux
+            StartLevel(mGame.GetState() == nk25d::Gameplay::WON ? (mLevel + 1) % mLib.Count() : mLevel);
     }
 
-    // Entrée souris / doigt : un appui (phase NK_POINTER_DOWN) est un tap, en pixels client (0..kW, 0..kH).
+    // Tout le dessin se fait en coordonnées LOGIQUES, puis les sommets sont mis à l'échelle de l'écran d'un seul coup :
+    // le jeu n'a ainsi qu'UNE mise en page à connaître (voir Gameplay::SetWindow), quelle que soit la forme de l'écran.
+    void OnDraw(nkgui::NkGuiDrawList& dl) override {
+        // Deux espaces de coordonnées : la scène (cubes, fourmis) passe par NkView25D::Project et sort DÉJÀ en pixels ;
+        // le fond et l'interface sont dessinés en coordonnées logiques du plan de la vue puis mis à l'échelle (k).
+        const float k = mGame.ViewScale();
+        usize v0 = dl.vtx.Size();
+        mGame.DrawBackground(dl);                  // herbe, assiette, nappe
+        Scale(dl, v0, k);
+        mScene.Render(dl);                         // cubes + fourmis triés par profondeur (pixels)
+        v0 = dl.vtx.Size();
+        mGame.DrawEffects(dl);                     // miettes, confettis
+        mGame.DrawUI(dl);                          // paniers, rayon de miel, boutons, écrans de fin
+        Scale(dl, v0, k);
+    }
+
+    // Redimensionnement, rotation : la forme de l'écran change, le monde du jeu ne bouge pas.
+    void OnLayout(const NkLayoutInfo& lay) override {
+        NkCanvasGuiApp::OnLayout(lay);
+        mWinW = (float)lay.width; mWinH = (float)lay.height;
+        mGame.SetWindow(mWinW, mWinH);
+    }
+
+    // Entrée souris / doigt : un appui est un tap, en pixels client -> coordonnées logiques (division par l'échelle).
     bool OnPointer(const NkPointer& ptr) override {
         if (ptr.phase != NkPointerPhase::NK_POINTER_DOWN) return false;
-        mGame.OnTap(ptr.x, ptr.y);
+        const float k = mGame.ViewScale();
+        nk25d::Gameplay::Action a = mGame.OnTap(ptr.x / k, ptr.y / k);
+        if (a == nk25d::Gameplay::ACT_NEXT) StartLevel((mLevel + 1) % mLib.Count());
+        else if (a == nk25d::Gameplay::ACT_RESTART) StartLevel(mLevel);
         return true;
     }
 
 private:
-    static NkImage MakeTestImage(int N) {                                   // lapin procédural de test
-        NkImage img = NkImage::Create((uint32)N, (uint32)N, NkImagePixelFormat::NK_RGBA32, 0u);
-        for (int y = 0; y < N; ++y) for (int x = 0; x < N; ++x) {
-            float u = (x + .5f) / N * 2 - 1, v = (y + .5f) / N * 2 - 1; uint8* p = img.RowPtr(y) + x * 4;
-            p[0] = p[1] = p[2] = 0; p[3] = 0;
-            auto in = [&](float cx, float cy, float rx, float ry) { float a = (u - cx) / rx, b = (v - cy) / ry; return a * a + b * b < 1; };
-            auto set = [&](int r, int g, int b) { p[0] = (uint8)r; p[1] = (uint8)g; p[2] = (uint8)b; p[3] = 255; };
-            if (in(-.45f, -.62f, .17f, .42f) || in(.45f, -.62f, .17f, .42f)) set(245, 245, 245);
-            if (in(-.45f, -.6f, .09f, .3f) || in(.45f, -.6f, .09f, .3f)) set(240, 60, 170);
-            if (in(0, .12f, .78f, .62f)) set(248, 248, 248);
-            if (in(-.3f, 0, .08f, .1f) || in(.3f, 0, .08f, .1f)) set(40, 40, 50);
-            if (in(0, .15f, .1f, .07f)) set(240, 60, 170);
-            if (in(0, .62f, .55f, .2f)) set(40, 170, 240);
-        }
-        return img;
+    // Met à l'échelle les sommets ajoutés depuis v0 (le plan logique -> les pixels).
+    static void Scale(nkgui::NkGuiDrawList& dl, usize v0, float k) { for (usize i = v0; i < dl.vtx.Size(); ++i) { dl.vtx[i].pos.x *= k; dl.vtx[i].pos.y *= k; } }
+
+    // Charge le niveau i : la scène est vidée, un plateau neuf est posé, le jeu repart de zéro.
+    bool StartLevel(int i) {
+        mLevel = i; mScene.Clear(); mBoard = mScene.Add<nk25d::Board>();
+        if (!mLib.LoadLevel(i, *mBoard)) return false;
+        mGame.SetWindow(mWinW, mWinH);
+        mGame.Init(&mScene, mBoard, i + 1);
+        if (mBot) mGame.AutoPlay(true);
+        if (mCasser == i + 1) mGame.BreakLevel();
+        if (mLegacy) mGame.SetLegacy(true);
+        return true;
     }
-    nk25d::Scene mScene; nk25d::Board* mBoard = nullptr; nk25d::Gameplay mGame;
+
+    // ---- Le BANC : joue les 25 niveaux en pur calcul (aucune fenêtre, aucun GPU) -------------------------
+    // Pour chaque niveau : pas fixe de 1/30 s, au plus 15 minutes de jeu, le bot joue. Un niveau PASSE si :
+    //   victoire ; somme des numéros du stock = nombre de cubes, couleur par couleur ; sorties = somme des numéros ;
+    //   retours au nid = sorties ; aucune sortie sans bloc réservé ; aucune fourmi ressortie ; aucun bloc réservé deux fois ;
+    //   aucun bloc réservé disparu. Le code de sortie est le nombre de niveaux en échec.
+    int RunBench() {
+        nk25d::LevelLibrary lib; int n = lib.LoadEmbedded();
+        NkString rap = NkFormat("FoodHunt, banc des niveaux ({0} niveaux){1}{2}\n", n, mLegacy ? " [ancien comportement]" : "", mCasser > 0 ? " [niveau cassé]" : "");
+        int fails = 0;
+        // Épreuve de la VUE : avec une vue NEUTRE (échelle 1), NkView25D::Project doit rendre exactement les mêmes points que
+        // l'ancienne formule de Camera ; Unproject doit défaire Project ; et une vue NON neutre doit, elle, différer (contre-épreuve :
+        // sans elle, un Project qui ignorerait la vue passerait aussi l'épreuve).
+        { nk25d::NkView25D v; nk25d::CameraAncienne old; old.origin = nkentseu::math::NkVec2f(13.f, 27.f); old.tilt = v.tilt = 0.85f;
+          v.Neutral(540.f, 1000.f); v.center = v.size * .5f - old.origin;
+          nk25d::NkView25D w = v; w.window = nkentseu::math::NkVec2f(1080.f, 2000.f);
+          int bad = 0, badRound = 0, wDiffers = 0, total = 0;
+          for (float x = -50.f; x <= 600.f; x += 37.f) for (float y = -50.f; y <= 700.f; y += 41.f) for (float z = 0.f; z <= 30.f; z += 7.5f) {
+              nkentseu::math::NkVec2f a2 = v.Project(x, y, z), b2 = old.Project(x, y, z), c2 = w.Project(x, y, z), s1 = v.ShadowPos(x, y, z), s2 = old.ShadowPos(x, y, z);
+              ++total;
+              if (nk25d::NkAbs(a2.x - b2.x) > 1e-3f || nk25d::NkAbs(a2.y - b2.y) > 1e-3f || nk25d::NkAbs(s1.x - s2.x) > 1e-3f || nk25d::NkAbs(s1.y - s2.y) > 1e-3f || nk25d::NkAbs(v.Depth(x, y, z) - old.Depth(x, y, z)) > 1e-3f) ++bad;
+              nkentseu::math::NkVec2f g = v.Unproject(v.Project(x, y, 0.f).x, v.Project(x, y, 0.f).y); if (nk25d::NkAbs(g.x - x) > 1e-2f || nk25d::NkAbs(g.y - y) > 1e-2f) ++badRound;
+              if (nk25d::NkAbs(c2.x - b2.x) > 1.f || nk25d::NkAbs(c2.y - b2.y) > 1.f) ++wDiffers;
+          }
+          const bool okVue = bad == 0 && badRound == 0 && wDiffers > total / 2;
+          if (!okVue) ++fails;
+          rap += NkFormat("Vue neutre : {0}  points {1}  ecarts {2}  aller-retour {3}  vue-non-neutre-differe {4}\n", okVue ? "OK" : "ECHEC", total, bad, badRound, wDiffers);
+        }
+        for (int i = 0; i < n; ++i) {
+            if (mSolo && i != mStart) continue;
+            nk25d::Scene scene; nk25d::Board* board = scene.Add<nk25d::Board>();
+            if (!lib.LoadLevel(i, *board)) { rap += NkFormat("{0} : ECHEC chargement\n", i + 1); ++fails; continue; }
+            nk25d::Gameplay g; g.Init(&scene, board, i + 1); g.SetBotPeriod(0.25f); g.AutoPlay(true);
+            if (mCasser == i + 1) g.BreakLevel();
+            if (mLegacy) g.SetLegacy(true);
+            const int cubes = board->Remaining(); int steps = 0;
+            while (g.GetState() == nk25d::Gameplay::PLAYING && steps < 30 * 900) { g.Tick(1.f / 30.f); ++steps; }
+            const nk25d::Stats& s = g.stats; NkString why;
+            NkString ants = g.GetState() == nk25d::Gameplay::PLAYING ? g.DescribeAnts() : NkString();
+            if (g.GetState() == nk25d::Gameplay::LOST) ants += g.DescribeState();
+            if (mSolo && g.GetState() == nk25d::Gameplay::PLAYING) { for (int k = 0; k < 15; ++k) g.Tick(1.f / 30.f); ants += NkString("  APRES 0.5s :") + g.DescribeAnts(); }
+            if (g.GetState() != nk25d::Gameplay::WON) why += g.GetState() == nk25d::Gameplay::LOST ? " perdu(bloque)" : " temps-depasse";
+            if (!s.balanced) why += " stock-desequilibre";
+            if (s.spawned != s.expected) why += NkFormat(" sorties({0})!=somme({1})", s.spawned, s.expected);
+            if (s.returned != s.spawned) why += NkFormat(" retours({0})!=sorties({1})", s.returned, s.spawned);
+            if (s.unreserved) why += NkFormat(" sorties-sans-reservation({0})", s.unreserved);
+            if (s.dupExit) why += NkFormat(" fourmis-ressorties({0})", s.dupExit);
+            if (s.dupReserve) why += NkFormat(" bloc-reserve-deux-fois({0})", s.dupReserve);
+            if (s.lostBlock) why += NkFormat(" bloc-reserve-disparu({0})", s.lostBlock);
+            const bool ok = why.Empty(); if (!ok) ++fails;
+            rap += NkFormat("{0} : {1}  cubes {2}  sorties {3}  retours {4}  temps {5}s{6}\n", i + 1, ok ? "OK    " : "ECHEC ", cubes, s.spawned, s.returned, (int)g.PlayTime(), (why + ants).CStr());
+        }
+        rap += NkFormat("Resultat : {0} niveau(x) en echec sur {1}\n", fails, n);
+        NkFile::WriteAllText(mRapport.CStr(), rap.CStr());
+        return fails;
+    }
+
+    nk25d::Scene mScene; nk25d::Board* mBoard = nullptr; nk25d::Gameplay mGame; nk25d::LevelLibrary mLib;
+    float mWinW = kRefW, mWinH = kRefH, mAvance = 0.f;
+    int mLevel = 0, mStart = 0, mCasser = 0; bool mSolo = false, mBot = kAutoPlay, mBanc = false, mLegacy = false;
+    NkString mRapport = NkString("foodhunt_banc.txt");
 };
 
-int nkmain(const NkEntryState& state) { return NkCanvasApp::Run<AntDemo>(state); }
+int nkmain(const NkEntryState& state) { return NkCanvasApp::Run<FoodHunt>(state); }

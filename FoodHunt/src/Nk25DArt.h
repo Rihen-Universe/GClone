@@ -1,0 +1,244 @@
+// AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
+// Nk25DArt.h — L'habillage « pique-nique au jardin » de FoodHunt, dessiné ENTIÈREMENT par le code
+// (NkGuiDrawList) : aucun fichier d'art, sauf les images des niveaux. Créé le 05/11/2026.
+//
+// Direction artistique (Rodolf : « conserver le style, donc l'idée et non les assets ») : une herbe tendre, une
+// assiette de céramique claire qui porte l'image en cubes, une fourmilière de terre, des paniers d'osier teintés de
+// la couleur des fourmis, un rayon de miel pour le stock, de petites icônes dessinées pour les bonus.
+// Tout est exprimé en coordonnées LOGIQUES (voir Gameplay::SetView) : l'application met ensuite l'ensemble à
+// l'échelle de l'écran en une fois. Les fonctions sont libres et sans état : elles peuvent se tester seules.
+#pragma once
+#include "Nk25D.h"
+
+namespace nk25d {
+
+// ---- Palette de l'interface (une seule source : changer ici change tout le jeu) --------------------------------
+namespace pal {
+    inline NkColor Creme()   { return NkColor(255, 247, 228, 255); }
+    inline NkColor Brun()    { return NkColor(98, 62, 42, 255); }        // texte sur fond clair, contours
+    inline NkColor Tomate()  { return NkColor(226, 76, 60, 255); }
+    inline NkColor Moutarde(){ return NkColor(244, 190, 62, 255); }
+    inline NkColor Feuille() { return NkColor(98, 170, 72, 255); }
+    inline NkColor Ciel()    { return NkColor(98, 162, 222, 255); }
+    inline NkColor Osier()   { return NkColor(214, 168, 96, 255); }
+}
+
+// ---- Petits outils -------------------------------------------------------------------------------------------
+inline float Rad(float deg) { return deg * (NK_PI_F / 180.f); }
+
+// Hexagone régulier « pointe en haut » de rayon R (distance centre-sommet). Sommets aux angles -90, -30, 30, 90...
+// Pavage en rayon de miel : largeur sqrt(3) R, rangées espacées de 1.5 R, rangées impaires décalées d'une demi-largeur.
+inline void HexPoly(Dl& dl, float cx, float cy, float R, const NkColor& c) {
+    NkVec2f p[6];
+    for (int k = 0; k < 6; ++k) { float a = Rad(60.f * k - 90.f); p[k] = NkVec2f(cx + R * NkCos(a), cy + R * NkSin(a)); }
+    dl.AddConvexPolyLisse(p, 6, c);
+}
+// Test de clic dans l'hexagone « pointe en haut » (repère centré) : |dx| <= (sqrt(3)/2) R et |dy| <= R - |dx| / sqrt(3).
+// La seconde inégalité est l'équation des deux arêtes obliques (pente 1/sqrt(3)) ; c'est exact, pas un cercle inscrit.
+inline bool InHex(float x, float y, float cx, float cy, float R) {
+    float dx = NkAbs(x - cx), dy = NkAbs(y - cy);
+    return dx <= 0.8660254f * R && dy <= R - dx * 0.5773503f;
+}
+
+// Étoile à cinq branches (non convexe : dix triangles issus du centre).
+inline void Star(Dl& dl, float cx, float cy, float R, const NkColor& c) {
+    NkVec2f p[10];
+    for (int k = 0; k < 10; ++k) { float a = Rad(36.f * k - 90.f), r = (k & 1) ? R * 0.46f : R; p[k] = NkVec2f(cx + r * NkCos(a), cy + r * NkSin(a)); }
+    for (int k = 0; k < 10; ++k) dl.AddTriangleFilled(NkVec2f(cx, cy), p[k], p[(k + 1) % 10], c);
+}
+
+// Rectangle arrondi centré avec ombre douce en dessous : le « bouton » de l'interface.
+inline void Pill(Dl& dl, float cx, float cy, float w, float h, const NkColor& c, float rounding = -1.f) {
+    float r = rounding < 0 ? h * .5f : rounding;
+    dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f + h * .09f, w, h), c.Shade(0.62f), NkMin(r, NkMin(w, h) * .499f));
+    dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f, w, h * .93f), c, NkMin(r, NkMin(w, h) * .499f));
+    dl.AddRectFilled(nkgui::NkRect(cx - w * .5f + h * .08f, cy - h * .5f + h * .06f, w - h * .16f, NkMin(h * .34f, 16.f)), c.Shade(1.16f), NkMin(r, h * .17f));
+}
+
+// ---- Fond : l'herbe --------------------------------------------------------------------------------------------
+// (x0, y0)-(x1, y1) est la zone VISIBLE entière en coordonnées logiques : le fond couvre l'écran quelle que soit sa forme.
+// 1. dégradé vertical doux (vert clair en haut, plus profond en bas) ;
+// 2. brins d'herbe, trèfles et petites fleurs placés par une suite pseudo-aléatoire de graine fixe : identiques à chaque
+//    trame (rien ne scintille) et discrets (alpha bas) pour ne pas gêner la lecture du jeu ;
+// 3. vignettage : quatre bandes dégradées vert foncé -> transparent sur les bords.
+inline void DrawGrass(Dl& dl, float x0, float y0, float x1, float y1) {
+    const float w = x1 - x0, h = y1 - y0;
+    dl.AddRectFilledMultiColor(nkgui::NkRect(x0, y0, w, h), NkColor(176, 218, 118, 255), NkColor(176, 218, 118, 255), NkColor(116, 176, 84, 255), NkColor(116, 176, 84, 255));
+    NkLcg32 r; r.Seed(20261105u);
+    for (int i = 0; i < 70; ++i) {                                                    // brins : trois petits traits en éventail
+        float x = x0 + (float)r.NextUInt32(1000) * 0.001f * w, y = y0 + (float)r.NextUInt32(1000) * 0.001f * h;
+        for (int k = -1; k <= 1; ++k) dl.AddLine(NkVec2f(x + k * 3.f, y), NkVec2f(x + k * 5.5f, y - 7.f - (float)(k * k) * 1.5f), NkColor(92, 150, 64, 70), 1.4f);
+    }
+    for (int i = 0; i < 26; ++i) {                                                    // trèfles : trois feuilles rondes + tige
+        float x = x0 + (float)r.NextUInt32(1000) * 0.001f * w, y = y0 + (float)r.NextUInt32(1000) * 0.001f * h, s = 5.f + (float)r.NextUInt32(30) * 0.1f;
+        NkColor g(84, 148, 66, 95);
+        dl.AddLine(NkVec2f(x, y + s), NkVec2f(x + 1.5f, y + s * 2.6f), g, 1.3f);
+        dl.AddEllipseFilled(NkVec2f(x - s * .6f, y + s * .2f), s * .62f, s * .62f, g);
+        dl.AddEllipseFilled(NkVec2f(x + s * .6f, y + s * .2f), s * .62f, s * .62f, g);
+        dl.AddEllipseFilled(NkVec2f(x, y - s * .5f), s * .62f, s * .62f, g);
+    }
+    for (int i = 0; i < 16; ++i) {                                                    // fleurs : cinq pétales autour d'un coeur
+        float x = x0 + (float)r.NextUInt32(1000) * 0.001f * w, y = y0 + (float)r.NextUInt32(1000) * 0.001f * h, s = 3.2f + (float)r.NextUInt32(20) * 0.1f;
+        int t = (int)r.NextUInt32(3); NkColor pc = t == 0 ? NkColor(255, 255, 255, 170) : (t == 1 ? NkColor(255, 220, 90, 170) : NkColor(255, 170, 190, 170));
+        for (int k = 0; k < 5; ++k) dl.AddEllipseFilled(NkVec2f(x + s * 1.25f * NkCos(Rad(72.f * k)), y + s * 1.25f * NkSin(Rad(72.f * k))), s, s, pc);
+        dl.AddEllipseFilled(NkVec2f(x, y), s * .8f, s * .8f, NkColor(244, 176, 40, 200));
+    }
+    const NkColor sombre(30, 70, 30, 80), nul(30, 70, 30, 0);                          // vignettage
+    const float e = NkMin(w, h) * 0.20f;
+    dl.AddRectFilledMultiColor(nkgui::NkRect(x0, y0, w, e), sombre, sombre, nul, nul);
+    dl.AddRectFilledMultiColor(nkgui::NkRect(x0, y1 - e, w, e), nul, nul, sombre, sombre);
+    dl.AddRectFilledMultiColor(nkgui::NkRect(x0, y0, e, h), sombre, nul, nul, sombre);
+    dl.AddRectFilledMultiColor(nkgui::NkRect(x1 - e, y0, e, h), nul, sombre, sombre, nul);
+}
+
+// ---- Nappe à carreaux (le bas de l'écran, derrière les boutons de bonus) --------------------------------------
+// Le vichy : un fond crème, des bandes verticales rouges semi-transparentes, puis des bandes horizontales de même
+// couleur ; là où elles se croisent le rouge s'additionne (carreau plus sombre), c'est ce qui fait le damier.
+inline void DrawGingham(Dl& dl, float x0, float y0, float x1, float y1) {
+    const float t = 16.f;
+    dl.AddRectFilled(nkgui::NkRect(x0, y0 - 5.f, x1 - x0, 7.f), NkColor(30, 60, 20, 45));                 // ombre portée vers le haut
+    dl.AddRectFilled(nkgui::NkRect(x0, y0, x1 - x0, y1 - y0), pal::Creme());
+    const NkColor rouge(226, 76, 60, 120);
+    for (float x = x0; x < x1; x += 2 * t) dl.AddRectFilled(nkgui::NkRect(x, y0, NkMin(t, x1 - x), y1 - y0), rouge);
+    for (float y = y0; y < y1; y += 2 * t) dl.AddRectFilled(nkgui::NkRect(x0, y, x1 - x0, NkMin(t, y1 - y)), rouge);
+    dl.AddRectFilled(nkgui::NkRect(x0, y0, x1 - x0, 3.f), NkColor(255, 255, 255, 170));                   // liseré clair au bord haut
+}
+
+// ---- L'assiette ------------------------------------------------------------------------------------------------
+// Rectangle à grands coins ronds (rayon = 22 % du petit côté), de l'extérieur vers l'intérieur :
+//   1. ombre portée douce sur l'herbe : quatre rectangles de plus en plus grands, de plus en plus transparents
+//      (l'empilement d'alphas bas imite un flou gaussien) et décalés vers le bas-droite (la lumière vient d'en haut à gauche) ;
+//   2. le bord : porcelaine crème, avec un reflet clair sur la moitié haute ;
+//   3. le LISERÉ coloré : un anneau fin, moutarde, à quelques pixels du bord ;
+//   4. le fond de l'assiette, un peu plus sombre au centre (le creux) : l'image en cubes y repose.
+inline void DrawPlate(Dl& dl, float x0, float y0, float x1, float y1) {
+    const float w = x1 - x0, h = y1 - y0, r = NkMin(w, h) * 0.22f;
+    for (int i = 4; i >= 1; --i) {
+        float g = i * 5.f;
+        dl.AddRectFilled(nkgui::NkRect(x0 - g + 6.f, y0 - g + 12.f, w + 2 * g, h + 2 * g), NkColor(20, 50, 15, 22), r + g);
+    }
+    dl.AddRectFilled(nkgui::NkRect(x0, y0 + 4.f, w, h), NkColor(160, 150, 130, 255), r);                  // épaisseur de la porcelaine
+    dl.AddRectFilled(nkgui::NkRect(x0, y0, w, h), NkColor(250, 246, 238, 255), r);                        // bord
+    dl.AddRectFilled(nkgui::NkRect(x0 + 6.f, y0 + 4.f, w - 12.f, h * .45f), NkColor(255, 255, 255, 120), r * .8f);   // reflet
+    dl.AddRect(nkgui::NkRect(x0 + 11.f, y0 + 11.f, w - 22.f, h - 22.f), pal::Moutarde(), 3.f, r - 10.f);  // liseré
+    dl.AddRectFilled(nkgui::NkRect(x0 + 18.f, y0 + 18.f, w - 36.f, h - 36.f), NkColor(236, 230, 218, 255), r - 16.f);
+    dl.AddRectFilled(nkgui::NkRect(x0 + 24.f, y0 + 26.f, w - 48.f, h - 52.f), NkColor(244, 239, 229, 255), r - 22.f);   // creux
+}
+
+// ---- Panier d'osier --------------------------------------------------------------------------------------------
+// Corps en trapèze (plus large en haut), tressage fait de TRAITS : trois cordons horizontaux et des montants qui
+// suivent l'évasement, anse en courbe de Bézier, bord ovale, étiquette crème portant le nombre restant.
+// La teinte du panier est celle des fourmis : osier mélangé à 42 % de la couleur du slot.
+// `rebond` > 0 gonfle et soulève le panier (il vient de recevoir un bloc) ; `actif` faux dessine un panier vide pâle.
+inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint, const char* nb, bool actif, float rebond) {
+    const float w = sz, h = sz * .78f;
+    if (!actif) {                                                                                   // emplacement libre : silhouette pâle
+        NkVec2f p[6] = { NkVec2f(cx - .5f*w, cy - .5f*h), NkVec2f(cx + .5f*w, cy - .5f*h), NkVec2f(cx + .42f*w, cy + .25f*h), NkVec2f(cx + .30f*w, cy + .5f*h), NkVec2f(cx - .30f*w, cy + .5f*h), NkVec2f(cx - .42f*w, cy + .25f*h) };
+        dl.AddConvexPolyFilled(p, 6, NkColor(255, 250, 235, 70));
+        dl.AddPolylineLisse(p, 6, NkColor(255, 250, 235, 150), 2.f, true);
+        return;
+    }
+    const float k = 1.f + 0.10f * rebond; cy -= 9.f * rebond;
+    const float W = w * k, H = h * k;
+    NkColor base = pal::Osier().Lerp(tint, 0.42f), dark = base.Shade(0.66f), light = base.Shade(1.18f);
+    dl.AddEllipseFilled(NkVec2f(cx + 3.f, cy + H * .52f), W * .52f, H * .13f, NkColor(20, 50, 15, 55));    // ombre sur l'herbe
+    dl.AddBezierCubic(NkVec2f(cx - .40f*W, cy - .46f*H), NkVec2f(cx - .55f*W, cy - 1.35f*H), NkVec2f(cx + .55f*W, cy - 1.35f*H), NkVec2f(cx + .40f*W, cy - .46f*H), dark, W * .075f, 0, true);   // anse
+    NkVec2f p[6] = { NkVec2f(cx - .5f*W, cy - .46f*H), NkVec2f(cx + .5f*W, cy - .46f*H), NkVec2f(cx + .42f*W, cy + .25f*H), NkVec2f(cx + .30f*W, cy + .5f*H), NkVec2f(cx - .30f*W, cy + .5f*H), NkVec2f(cx - .42f*W, cy + .25f*H) };
+    NkVec2f po[6]; for (int i = 0; i < 6; ++i) po[i] = NkVec2f(cx + (p[i].x - cx) * 1.05f, cy + (p[i].y - cy) * 1.05f + (i > 2 ? 1.f : 0.f));
+    dl.AddConvexPolyFilled(po, 6, dark.Shade(0.7f));                                                // contour
+    dl.AddConvexPolyFilled(p, 6, base);
+    // Tressage. La largeur du corps à l'ordonnée y varie linéairement de W (haut) à ~0.6 W (bas) : on la recalcule
+    // pour que les cordons et les montants suivent le bord.
+    auto larg = [&](float y) { float t = (y - (cy - .46f * H)) / (H * .96f); return W * (1.0f - 0.40f * NkClamp(t, 0.f, 1.f)); };
+    for (int j = 1; j <= 3; ++j) {                                                                  // cordons horizontaux
+        float y = cy - .46f * H + H * .96f * (j / 4.f), lw = larg(y) * .5f;
+        dl.AddLine(NkVec2f(cx - lw, y), NkVec2f(cx + lw, y), dark, 1.6f);
+        dl.AddLine(NkVec2f(cx - lw, y - 1.4f), NkVec2f(cx + lw, y - 1.4f), light, 1.0f);
+    }
+    for (int j = -3; j <= 3; ++j) {                                                                 // montants verticaux (suivent l'évasement)
+        float f = j / 3.5f * .5f;
+        dl.AddLine(NkVec2f(cx + f * larg(cy - .46f * H), cy - .46f * H), NkVec2f(cx + f * larg(cy + .5f * H), cy + .5f * H), dark.Lerp(base, .45f), 1.2f);
+    }
+    dl.AddEllipseFilled(NkVec2f(cx, cy - .46f * H), W * .52f, H * .13f, dark);                      // bord ovale
+    dl.AddEllipseFilled(NkVec2f(cx, cy - .46f * H + 1.f), W * .44f, H * .085f, dark.Shade(0.45f));  // intérieur sombre
+    Pill(dl, cx, cy + .12f * H, W * .56f, H * .38f, pal::Creme(), H * .12f);                        // étiquette
+    GameTextOutline(dl, cx, cy + .11f * H, H * .36f, nb, pal::Brun(), NkColor(255, 247, 228, 255));
+}
+
+// ---- Alvéole du rayon de miel ----------------------------------------------------------------------------------
+// Une cellule hexagonale : liseré clair si elle est jouable, lèvre sombre dessous (épaisseur), face de la couleur du
+// bloc, reflet brillant en haut à gauche, nombre contouré. `dispo` faux = alvéole assombrie (pas encore atteignable) ;
+// `mystere` = fond violet et point d'interrogation ; `pose` (0..1) fait pousser la cellule (apparition).
+inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c, const char* txt, bool dispo, bool mystere, bool joue) {
+    NkColor base = mystere ? NkColor(160, 112, 206, 255) : c;
+    if (!dispo) base = base.Lerp(NkColor(84, 66, 52, 255), 0.55f);
+    if (joue) HexPoly(dl, cx, cy + R * .02f, R * 1.0f, NkColor(255, 255, 255, 235));                // anneau de sélection
+    const float r = joue ? R * .93f : R * .96f;
+    HexPoly(dl, cx, cy + R * .10f, r, base.Shade(0.55f));                                           // lèvre
+    HexPoly(dl, cx, cy, r, base.Shade(0.86f));
+    HexPoly(dl, cx, cy - R * .04f, r * .88f, base);
+    HexPoly(dl, cx, cy - R * .16f, r * .66f, base.Shade(dispo ? 1.14f : 1.05f));
+    if (dispo) {                                                                                    // reflet : arête haute-gauche
+        NkVec2f a(cx - r * .72f, cy - r * .34f), b(cx - r * .02f, cy - r * .80f);
+        dl.AddLine(a, b, NkColor(255, 255, 255, 190), R * .085f);
+        dl.AddEllipseFilled(NkVec2f(cx - r * .74f, cy - r * .34f), R * .05f, R * .05f, NkColor(255, 255, 255, 190));
+    }
+    int lum = (base.r * 3 + base.g * 6 + base.b) / 10;
+    NkColor tc = lum > 175 ? pal::Brun() : NkColor(255, 255, 255, 255), oc = lum > 175 ? NkColor(255, 255, 255, 200) : NkColor(60, 40, 30, 220);
+    if (!dispo) { tc.a = 170; oc.a = 120; }
+    GameTextOutline(dl, cx, cy - R * .02f, R * .72f, txt, tc, oc);
+}
+// Alvéole vide (place du rayon sans bloc) : un creux ambré à peine visible, pour que le rayon reste lisible.
+inline void DrawEmptyCell(Dl& dl, float cx, float cy, float R) {
+    HexPoly(dl, cx, cy, R * .96f, NkColor(120, 84, 30, 60));
+    HexPoly(dl, cx, cy + R * .04f, R * .84f, NkColor(70, 44, 14, 45));
+}
+
+// ---- Icônes des bonus --------------------------------------------------------------------------------------------
+// Chaque icône tient dans un carré de côté 2 r centré en (cx, cy). Elles se dessinent par formes pleines simples
+// (disques, polygones, rectangles arrondis) avec un contour brun posé d'abord, un peu plus grand : à petite taille
+// le contour fait la lecture, la couleur ne fait que l'habiller.
+inline void IconPanier(Dl& dl, float cx, float cy, float r) {                                          // + un emplacement
+    DrawBasket(dl, cx - r * .12f, cy + r * .12f, r * 1.25f, NkColor(255, 255, 255, 255), "", true, 0.f);
+    dl.AddRectFilled(nkgui::NkRect(cx + r * .22f, cy - r * .72f, r * .66f, r * .22f), NkColor(255, 255, 255, 255), r * .05f);
+    dl.AddRectFilled(nkgui::NkRect(cx + r * .44f, cy - r * .94f, r * .22f, r * .66f), NkColor(255, 255, 255, 255), r * .05f);
+}
+inline void IconMain(Dl& dl, float cx, float cy, float r) {                                            // choisir n'importe quel bloc : la main
+    for (int pass = 0; pass < 2; ++pass) {
+        float e = pass == 0 ? r * .10f : 0.f; NkColor c = pass == 0 ? pal::Brun() : NkColor(255, 238, 214, 255);
+        for (int f = 0; f < 4; ++f) {                                                                 // quatre doigts de hauteurs inégales
+            static const float hh[4] = {.62f, .78f, .72f, .52f};
+            float fx = cx - r * .42f + f * r * .28f, w = r * .26f + 2 * e, h = r * hh[f] + 2 * e;
+            dl.AddRectFilled(nkgui::NkRect(fx - w * .5f, cy - r * .16f - h + r * .10f, w, h), c, w * .5f);
+        }
+        dl.AddRectFilled(nkgui::NkRect(cx - r * .56f - e, cy - r * .20f - e, r * 1.12f + 2 * e, r * .92f + 2 * e), c, r * .28f);   // paume
+        dl.AddEllipseFilled(NkVec2f(cx - r * .62f, cy + r * .10f), r * .24f + e, r * .15f + e, c);   // pouce
+    }
+}
+inline void IconBombe(Dl& dl, float cx, float cy, float r) {                                           // le canon : une bombe à mèche
+    dl.AddEllipseFilled(NkVec2f(cx - r * .08f, cy + r * .18f), r * .66f + r * .09f, r * .66f + r * .09f, pal::Brun());
+    dl.AddEllipseFilled(NkVec2f(cx - r * .08f, cy + r * .18f), r * .66f, r * .66f, NkColor(58, 58, 74, 255));
+    dl.AddEllipseFilled(NkVec2f(cx - r * .26f, cy - r * .02f), r * .20f, r * .14f, NkColor(190, 196, 220, 220));      // reflet
+    dl.AddRectFilled(nkgui::NkRect(cx + r * .02f, cy - r * .68f, r * .30f, r * .22f), NkColor(120, 120, 140, 255), r * .05f);   // culot
+    dl.AddBezierCubic(NkVec2f(cx + r * .22f, cy - r * .66f), NkVec2f(cx + r * .36f, cy - r * 1.0f), NkVec2f(cx + r * .56f, cy - r * .7f), NkVec2f(cx + r * .66f, cy - r * .90f), NkColor(120, 78, 50, 255), r * .09f, 0, true);   // mèche
+    Star(dl, cx + r * .70f, cy - r * .94f, r * .26f, NkColor(255, 214, 70, 255));                       // étincelle
+}
+inline void IconEclair(Dl& dl, float cx, float cy, float r) {                                          // fourmis plus vite et plus nombreuses : l'éclair
+    static const float X[6] = {.25f, -.50f, -.02f, -.25f, .50f, .00f}, Y[6] = {-1.f, .10f, .10f, 1.f, -.20f, -.20f};
+    for (int pass = 0; pass < 2; ++pass) {
+        float e = pass == 0 ? 1.28f : 1.f; NkColor c = pass == 0 ? pal::Brun() : NkColor(255, 232, 90, 255);
+        NkVec2f P[6]; for (int i = 0; i < 6; ++i) P[i] = NkVec2f(cx + X[i] * r * e * .9f, cy + Y[i] * r * e * .9f);
+        static const int T[4][3] = {{0, 1, 2}, {0, 2, 5}, {5, 2, 4}, {2, 3, 4}};
+        for (int t = 0; t < 4; ++t) dl.AddTriangleFilled(P[T[t][0]], P[T[t][1]], P[T[t][2]], c);
+    }
+}
+
+// ---- Confettis --------------------------------------------------------------------------------------------------
+inline void DrawConfetti(Dl& dl, float x, float y, float rot, float w, const NkColor& c) {
+    float ca = NkCos(rot), sa = NkSin(rot), hw = w * .5f, hh = w * .28f;
+    NkVec2f q[4] = { NkVec2f(x - hw * ca + hh * sa, y - hw * sa - hh * ca), NkVec2f(x + hw * ca + hh * sa, y + hw * sa - hh * ca),
+                     NkVec2f(x + hw * ca - hh * sa, y + hw * sa + hh * ca), NkVec2f(x - hw * ca - hh * sa, y - hw * sa + hh * ca) };
+    dl.AddConvexPolyFilled(q, 4, c);
+}
+
+} // namespace nk25d

@@ -17,3 +17,6 @@ Kits/
 logs/
 *.zip
 *.log
+
+# (05/11/2026) Le rapport du banc --verifier-niveaux.
+foodhunt_banc.txt

@@ -50,8 +50,18 @@ inline void Block3D(Dl& dl, float cx, float cy, float sz, NkColor c, const char*
     UiText(dl, cx, cy - sz * .04f, sz * .42f, txt, tc, lum <= 185);
 }
 
-struct StockBlock { int color; int count; bool mystery; };
-struct Slot { bool active = false; int color = -1, remaining = 0; float spawnCd = 0; };
+// Une alvéole du stock. Les champs d'animation (yoff... flipT) ne servent qu'à l'affichage : `yoff` est le décalage VERTICAL
+// (pixels logiques, positif = plus bas) entre la place de l'alvéole dans sa colonne et l'endroit où elle est dessinée ; il
+// revient à 0 en ressort amorti (glissement vers le haut avec petit rebond), après `delay` secondes (décalage entre alvéoles).
+struct StockBlock {
+    int color; int count; bool mystery;
+    float yoff = 0, vy = 0, delay = 0, appear = 1.f;       // glissement, vitesse, attente, apparition 0..1
+    bool revealed = false; float flipT = -1.f;             // mystère : révélé ? bascule 0..1 (-1 : pas commencée)
+};
+// Un tiroir. `flying` : le bloc vole encore jusqu'au panier ; il ne fait pas sortir de fourmis avant d'être arrivé.
+struct Slot { bool active = false, flying = false; int color = -1, remaining = 0; float spawnCd = 0; };
+// Vol d'une alvéole cliquée jusqu'à son panier : de (x0, y0) à la place du panier, 0.25 s, départ vif et arrivée douce.
+struct Fly { bool on = false; float t = 0, x0 = 0, y0 = 0; int color = 0, count = 0; bool mystery = false; };
 
 // Les COMPTEURS du jeu : ce que le banc vérifie (voir Verify dans main.cpp).
 struct Stats {
@@ -60,6 +70,8 @@ struct Stats {
     int returned = 0;      // fourmis revenues au nid avec un bloc
     int unreserved = 0;    // sorties SANS bloc réservé (doit rester 0)
     int dupExit = 0;       // fourmis ressorties après un premier voyage (doit rester 0)
+    int tapped = 0;        // blocs posés par un CLIC (OnTap) : le jeu n'a pas d'autre chemin pour poser un bloc
+    int blocks = 0;        // nombre de blocs du stock
     int dupReserve = 0;    // blocs réservés deux fois (doit rester 0)
     int lostBlock = 0;     // bloc réservé disparu avant le ramassage (doit rester 0)
     bool balanced = true;  // somme des numéros du stock == nombre de cubes, pour CHAQUE couleur
@@ -89,9 +101,11 @@ public:
         for (int i = 0; i < MAXSLOTS; ++i) { slot_[i] = Slot(); bz_[i] = bv_[i] = 0; slotT_[i] = 1.f; }
         pw_[0] = 1; pw_[1] = 0; pw_[2] = 0; pw_[3] = 1; hand_ = false; boost_ = 0; bonusUsed_ = 0; ncr_ = 0; ncf_ = 0;
         stats = Stats();
+        for (int i = 0; i < MAXSLOTS; ++i) fly_[i] = Fly();
         resv_.Resize((usize)(b->gw * b->gh)); for (usize i = 0; i < resv_.Size(); ++i) resv_[i] = 0;
         total_ = NkMax(1, b->Remaining());
         BuildStock();
+        stats.blocks = 0; for (int c = 0; c < COLS; ++c) stats.blocks += len_[c];
         SetWindow(winW_, winH_);
     }
 
@@ -118,6 +132,12 @@ public:
     float ViewScale() const { return sc_ ? sc_->camera.Scale() : 1.f; }       // pixels par unité logique
 
     void AutoPlay(bool on) { auto_ = on; }
+    // Le BOT JOUE PAR LE CLIC (05/11) : il ne pose jamais un bloc lui-même ; il rend le point (logique) où il « appuie », et
+    // l'appelant l'envoie par le chemin du vrai clic (pixels d'écran -> OnTap). Rend faux s'il n'a rien à faire à cet instant.
+    bool BotTick(float dt, float& lx, float& ly) {
+        if ((autoT_ -= dt) > 0) return false;
+        autoT_ = botPeriod_; return BotChoose(lx, ly);
+    }
     void SetBotPeriod(float s) { botPeriod_ = s; }
     void SetLegacy(bool on) { legacy_ = on; }                // ANCIEN comportement des fourmis (contre-épreuve du banc)
     void BreakLevel() { nSlots_ = 0; }                       // contre-épreuve : un niveau INJOUABLE (aucun tiroir)
@@ -125,6 +145,8 @@ public:
     float TimeScale() const { return speedMul_; }
     float PlayTime() const { return tPlay_; }
     float EndTime() const { return endT_; }
+    // Centre (logique) de l'alvéole (c, r) là où elle est DESSINÉE (animation comprise) : pour les essais de clic.
+    bool CellPoint(int c, int r, float& lx, float& ly) const { if (c < 0 || c >= COLS || r >= len_[c]) return false; HexPos(c, r, lx, ly); ly += col_[c][r].yoff; return true; }
     // Diagnostic du banc (défaite) : tiroirs, cubes restants et exposés par couleur, blocs de stock restants par couleur.
     NkString DescribeState() const {
         NkString r; int ex[MAX_PAL]; board_->ExposedCounts(ex);
@@ -170,8 +192,9 @@ public:
         for (int i = 0; i < 4; ++i) if (Hit(x, y, BtnX(i), BtnY(), 36.f, 36.f)) { Power(i); return ACT_NONE; }
         for (int c = 0; c < COLS; ++c) for (int r = 0; r < 3 && r < len_[c]; ++r) {
             if (r > 0 && !hand_) continue;
+            // Un clic est accepté PENDANT les animations : on teste la place de l'alvéole ET l'endroit où elle est dessinée.
             float cx, cy; HexPos(c, r, cx, cy);
-            if (InHex(x, y, cx, cy, kHexR)) { Deploy(c, r); return ACT_NONE; }
+            if (InHexFlat(x, y, cx, cy, kHexR) || InHexFlat(x, y, cx, cy + col_[c][r].yoff, kHexR)) { if (Deploy(c, r)) ++stats.tapped; return ACT_NONE; }
         }
         return ACT_NONE;
     }
@@ -210,24 +233,36 @@ public:
         Pill(dl, LW_ - 70.f, 40.f, 84.f, 40.f, pal::Ciel());
         GameTextOutline(dl, LW_ - 70.f, 39.f, 24.f, sp2.CStr(), NkColor(255, 255, 255, 255), NkColor(30, 70, 120, 255));
 
-        // --- stock : le rayon de miel. D'abord les creux (toutes les places), puis les alvéoles du fond vers l'avant.
+        // --- stock : le rayon de miel (colonnes droites). D'abord les creux, puis les alvéoles du fond vers l'avant.
         for (int c = 0; c < COLS; ++c) for (int r = 2; r >= 0; --r) { float cx, cy; HexPos(c, r, cx, cy); if (r >= len_[c]) DrawEmptyCell(dl, cx, cy, kHexR); }
         for (int c = 0; c < COLS; ++c) for (int r = NkMin(2, len_[c] - 1); r >= 0; --r) {
-            const StockBlock& b = col_[c][r]; bool dispo = r == 0 || hand_, hidden = b.mystery && !dispo;
-            NkString s = hidden ? NkString("?") : NkFormat("{0}", b.count);
+            const StockBlock& b = col_[c][r]; bool dispo = r == 0 || hand_, shown = !b.mystery || b.revealed || hand_;
+            float sx = 1.f; if (b.flipT >= 0.f && b.flipT < 1.f) { sx = NkAbs(NkCos(NK_PI_F * b.flipT)); if (sx < 0.06f) sx = 0.06f; }
+            NkString s = shown ? NkFormat("{0}", b.count) : NkString("?");
             float cx, cy; HexPos(c, r, cx, cy);
-            DrawHoneyCell(dl, cx, cy, kHexR, board_->palette[b.color], s.CStr(), dispo, hidden, dispo);
+            float e = b.appear; float k = 0.45f + 0.55f * (1.f - (1.f - e) * (1.f - e));                    // apparition : la cellule grandit
+            DrawHoneyCell(dl, cx, cy + b.yoff, kHexR, board_->palette[b.color], s.CStr(), dispo, !shown, dispo, k, sx);
         }
         if (hand_) { Pill(dl, LW_ * .5f, LH_ - 316.f + 6.f, 196.f, 30.f, pal::Moutarde()); GameTextOutline(dl, LW_ * .5f, LH_ - 316.f + 5.f, 20.f, "Choisis un bloc", NkColor(255, 255, 255, 255), pal::Brun()); }
 
         // --- paniers (les tiroirs)
         for (int i = 0; i < nSlots_; ++i) {
             float x, y, sz; BasketPos(i, x, y, sz);
-            if (slot_[i].active) {
+            if (slot_[i].active && !slot_[i].flying) {
                 float t = NkClamp(slotT_[i] / 0.3f, 0.f, 1.f), k = 1.f + 2.7f * (t - 1.f) * (t - 1.f) * (t - 1.f) + 1.7f * (t - 1.f) * (t - 1.f);   // sortie avec dépassement (easeOutBack)
                 NkString s = NkFormat("{0}", slot_[i].remaining);
                 DrawBasket(dl, x, y, sz * NkMax(0.05f, k), board_->palette[slot_[i].color], s.CStr(), true, bz_[i]);
             } else DrawBasket(dl, x, y, sz, NkColor(255, 255, 255, 255), "", false, 0.f);
+        }
+
+        // --- alvéoles en vol : de leur place jusqu'au panier. Départ vif et arrivée douce (sortie cubique : e = 1 - (1 - t)^3),
+        //     léger arc (on remonte de sin(pi t) * 44 px au milieu du trajet), la cellule rétrécit un peu en arrivant.
+        for (int i = 0; i < nSlots_; ++i) if (fly_[i].on) {
+            float bx, by, bsz; BasketPos(i, bx, by, bsz); const Fly& f = fly_[i];
+            float t = NkClamp(f.t, 0.f, 1.f), e = 1.f - (1.f - t) * (1.f - t) * (1.f - t);
+            float x = f.x0 + (bx - f.x0) * e, y = f.y0 + (by - f.y0) * e - NkSin(NK_PI_F * t) * 44.f;
+            NkString s = f.mystery ? NkFormat("{0}", f.count) : NkFormat("{0}", f.count);
+            DrawHoneyCell(dl, x, y, kHexR, board_->palette[f.color], s.CStr(), true, false, true, 1.f - 0.30f * e);
         }
 
         // --- boutons de bonus : quatre carrés d'osier, une icône dessinée chacun
@@ -248,11 +283,13 @@ public:
 
 private:
     // ---- mise en page (logique) ---------------------------------------------------------------
-    static constexpr float kHexR = 40.f;                                    // rayon des alvéoles (sommet-centre)
-    // Alvéole (colonne c, rang r) : pavage en quinconce — rangs impairs décalés d'une demi-largeur (sqrt(3) R / 2).
+    static constexpr float kHexR = 36.f;                                    // rayon des alvéoles (sommet-centre)
+    // Alvéole (colonne c, rang r) : hexagones à SOMMETS PLATS, nid d'abeilles par COLONNES. Colonnes espacées de 1.5 R ;
+    // rangs espacés de sqrt(3) R DANS la colonne (donc strictement l'un sous l'autre : une alvéole qui monte monte tout droit) ;
+    // une colonne sur deux décalée d'une demi-hauteur (sqrt(3) R / 2), ce qui fait le quinconce du rayon de miel.
+    static float RowStep() { return 1.7320508f * kHexR; }
     void HexPos(int c, int r, float& x, float& y) const {
-        const float dx = 1.7320508f * kHexR, shift = (r & 1) ? dx * .25f : -dx * .25f;
-        x = LW_ * .5f + (c - 1.5f) * dx + shift; y = LH_ - 262.f + 62.f * r;
+        x = LW_ * .5f + (c - 1.5f) * 1.5f * kHexR; y = LH_ - 268.f + RowStep() * r + ((c & 1) ? RowStep() * .5f : 0.f);
     }
     float BtnX(int i) const { return LW_ * .5f + (i - 1.5f) * 118.f; }
     float BtnY() const { return LH_ - 46.f; }
@@ -334,13 +371,22 @@ private:
         for (int i = 0; i < n; ++i) { int c = i % COLS; if (len_[c] < MAXCOL) col_[c][len_[c]++] = all[i]; }
     }
     bool FreeSlot(int& out) const { for (int i = 0; i < nSlots_; ++i) if (!slot_[i].active) { out = i; return true; } return false; }
-    void Deploy(int c, int r) {
-        int si; if (!FreeSlot(si)) return;
-        StockBlock b = col_[c][r];
+    // Pose le bloc (c, r) dans un tiroir libre. RIEN ne se téléporte : l'alvéole VOLE jusqu'au panier (Fly), le panier ne fait
+    // sortir ses fourmis qu'à l'arrivée, et les alvéoles suivantes de la colonne GLISSENT vers le haut l'une après l'autre
+    // (décalage de 30 ms, rebond d'arrivée). Rend faux s'il n'y a pas de tiroir libre.
+    bool Deploy(int c, int r) {
+        int si; if (!FreeSlot(si)) return false;
+        StockBlock b = col_[c][r]; float fx, fy; HexPos(c, r, fx, fy); fy += b.yoff;
         for (int k = r; k + 1 < len_[c]; ++k) col_[c][k] = col_[c][k + 1];
         --len_[c];
-        slot_[si].active = true; slot_[si].color = b.color; slot_[si].remaining = b.count; slot_[si].spawnCd = 0.25f; slotT_[si] = 0;
+        for (int k = r; k < len_[c]; ++k) {                                   // les suivantes montent d'un rang : elles partent de l'ancienne place (plus bas)
+            StockBlock& n = col_[c][k]; n.yoff += RowStep(); n.vy = 0; n.delay = 0.03f * (float)(k - r);
+            if (k == 2) n.appear = 0.f;                                      // celle qui entre dans les trois rangs visibles apparaît en fondu
+        }
+        slot_[si].active = true; slot_[si].flying = true; slot_[si].color = b.color; slot_[si].remaining = b.count; slot_[si].spawnCd = 0.1f;
+        fly_[si].on = true; fly_[si].t = 0; fly_[si].x0 = fx; fly_[si].y0 = fy; fly_[si].color = b.color; fly_[si].count = b.count; fly_[si].mystery = false;
         hand_ = false;
+        return true;
     }
     void Power(int i) {
         if (pw_[i] <= 0) { pw_[i] = 1; return; }                 // bouton "+" : place de la pub / récompense
@@ -367,7 +413,7 @@ private:
         // 1. SORTIES : chaque tiroir fait sortir une fourmi tous les 0.22 s (0.09 s en mode éclair), mais SEULEMENT si un bloc
         //    peut lui être réservé à cet instant (règle 4). La lecture de l'accessibilité est fraîche (Board::EnsureReach).
         for (int s = 0; s < nSlots_; ++s) {
-            Slot& sl = slot_[s]; if (!sl.active) continue;
+            Slot& sl = slot_[s]; if (!sl.active || sl.flying) continue;
             if (sl.remaining <= 0) { sl.active = false; continue; }
             sl.spawnCd -= dt;
             if (sl.spawnCd <= 0 && na_ < MAXANTS) TrySpawn(s);
@@ -405,7 +451,6 @@ private:
         }
         int fs; bool freeSlot = FreeSlot(fs) && StockLeft() > 0;
         if (!progress && !freeSlot) { if ((stallT_ += dt) > 1.0f) { state_ = LOST; endT_ = 0; } } else stallT_ = 0;
-        if (auto_) { if ((autoT_ -= dt) <= 0) { autoT_ = botPeriod_; AutoPick(); } }
     }
 
     void Reserve(int cell) {
@@ -480,8 +525,8 @@ private:
     // ---- bot : joue seul (--bot) ---------------------------------------------------------
     // Couleur accessible d'abord, petit bloc d'abord. Si rien n'est accessible et que rien n'avance, il utilise la main
     // (bonus) pour piocher plus profond, ou à défaut débloque n'importe quel bloc.
-    void AutoPick() {
-        int fs; if (!FreeSlot(fs)) return;
+    bool BotChoose(float& lx, float& ly) {
+        int fs; if (!FreeSlot(fs)) return false;
         int ex[MAX_PAL]; board_->ExposedCounts(ex);
         // `need[c]` : fourmis encore attendues par les tiroirs DÉJÀ actifs de la couleur c (elles se partageront les cubes exposés).
         int need[MAX_PAL] = {}; for (int s = 0; s < nSlots_; ++s) if (slot_[s].active) need[slot_[s].color] += slot_[s].remaining;
@@ -500,15 +545,16 @@ private:
         if (bestc >= 0 && bs < 1000000) {
             int libres = 0; for (int s = 0; s < nSlots_; ++s) if (!slot_[s].active) ++libres;
             bool prog = na_ > 0; for (int s = 0; s < nSlots_; ++s) if (slot_[s].active && slot_[s].remaining > 0 && ex[slot_[s].color] > 0) prog = true;
-            if (libres < 2 && prog) { if (!hand_ && pw_[1] > 0) { Power(1); } return; }
+            if (libres < 2 && prog) { if (!hand_ && pw_[1] > 0) { lx = BtnX(1); ly = BtnY(); return true; } return false; }
         }
         if (bestc < 0) {
             bool prog = na_ > 0; for (int s = 0; s < nSlots_; ++s) if (slot_[s].active && slot_[s].remaining > 0 && ex[slot_[s].color] > 0) prog = true;
-            if (prog) return;
-            if (!hand_ && pw_[1] > 0) { Power(1); return; }
+            if (prog) return false;
+            if (!hand_ && pw_[1] > 0) { lx = BtnX(1); ly = BtnY(); return true; }
             for (int c = 0; c < COLS; ++c) if (len_[c] > 0) { bestc = c; bestr = 0; break; }
         }
-        if (bestc >= 0) Deploy(bestc, bestr);
+        if (bestc < 0) return false;
+        float cx, cy; HexPos(bestc, bestr, cx, cy); lx = cx; ly = cy + col_[bestc][bestr].yoff; return true;          // le point d'appui : l'alvéole choisie
     }
 
     // ---- vie : miettes, rebond, confettis, écran de fin --------------------------------------
@@ -534,6 +580,21 @@ private:
             Confetti& f = conf_[i]; f.life -= dt; f.x += f.vx * dt + NkSin(f.rot) * 12.f * dt; f.y += f.vy * dt; f.rot += f.vr * dt; f.vy += 40.f * dt;
             if (f.life <= 0 || f.y > LH_ + 30.f) { conf_[i--] = conf_[--ncf_]; }
         }
+        for (int c = 0; c < COLS; ++c) for (int k = 0; k < len_[c] && k < 3; ++k) {     // glissement des alvéoles vers le haut
+            StockBlock& b = col_[c][k];
+            if (b.appear < 1.f) { b.appear += dt / 0.25f; if (b.appear > 1.f) b.appear = 1.f; }
+            if (b.delay > 0.f) { b.delay -= dt; continue; }
+            // Ressort amorti : a = -K y - C v, avec K = 300 et C = 24, soit un taux d'amortissement C / (2 sqrt K) = 0.69 :
+            // un dépassement d'environ 5 % (le « petit rebond d'arrivée ») et une stabilisation en ~0.3 s.
+            b.vy += (-300.f * b.yoff - 24.f * b.vy) * dt; b.yoff += b.vy * dt;
+            if (NkAbs(b.yoff) < 0.05f && NkAbs(b.vy) < 0.5f) { b.yoff = 0.f; b.vy = 0.f; }
+            if (k == 0 && b.mystery && !b.revealed && b.flipT < 0.f && NkAbs(b.yoff) < 8.f) b.flipT = 0.f;   // le mystère de tête se retourne
+            if (b.flipT >= 0.f && b.flipT < 1.f) { b.flipT += dt / 0.35f; if (b.flipT >= 0.5f) b.revealed = true; if (b.flipT > 1.f) b.flipT = 1.f; }
+        }
+        for (int i = 0; i < MAXSLOTS; ++i) if (fly_[i].on) {      // vols : 0.25 s ; à l'arrivée le panier s'ouvre et ses fourmis peuvent sortir
+            fly_[i].t += dt / 0.25f;
+            if (fly_[i].t >= 1.f) { fly_[i].on = false; slot_[i].flying = false; slot_[i].spawnCd = 0.05f; slotT_[i] = 0; bv_[i] += 4.f; }
+        }
         for (int i = 0; i < MAXSLOTS; ++i) {                     // ressort amorti du rebond : a = -k z - c v
             bv_[i] += (-140.f * bz_[i] - 9.f * bv_[i]) * dt; bz_[i] += bv_[i] * dt; slotT_[i] += dt;
         }
@@ -554,7 +615,7 @@ private:
         dl.AddRectFilled(nkgui::NkRect(0, 0, LW_, LH_), NkColor(20, 40, 15, (uint8)(NkMin(1.f, endT_ / 0.3f) * 120)));
         float t = NkClamp(endT_ / 0.45f, 0.f, 1.f), u = t - 1.f, k = 1.f + 2.7f * u * u * u + 1.7f * u * u;       // easeOutBack
         const float cx = LW_ * .5f, cy = LH_ * .5f - 30.f;
-        Pill(dl, cx, cy, 380.f * k, 330.f * k, pal::Creme(), 36.f * k);
+        Card(dl, cx, cy, 380.f * k, 330.f * k, pal::Creme(), 36.f * k);
         dl.AddRect(nkgui::NkRect(cx - 190.f * k + 9.f, cy - 165.f * k + 9.f, 362.f * k, 306.f * k), win ? pal::Moutarde() : pal::Tomate(), 3.f, 28.f * k);
         if (t < 0.6f) return;                                                                                         // le contenu attend que la carte soit ouverte
         GameTextOutline(dl, cx, cy - 108.f, 40.f, win ? "Niveau réussi !" : "Échec", win ? pal::Feuille() : pal::Tomate(), NkColor(255, 255, 255, 255));
@@ -578,6 +639,7 @@ private:
     float winW_ = 540, winH_ = 1000;
     float plL_ = 0, plR_ = 0, plT_ = 0, plB_ = 0;
     StockBlock col_[COLS][MAXCOL]; int len_[COLS] = {};
+    Fly fly_[MAXSLOTS];
     Slot slot_[MAXSLOTS]; int nSlots_ = 5; float bz_[MAXSLOTS] = {}, bv_[MAXSLOTS] = {}, slotT_[MAXSLOTS] = {};
     Ant* ants_[MAXANTS]; int na_ = 0;
     Crumb crumb_[MAXCRUMB]; int ncr_ = 0; Confetti conf_[MAXCONF]; int ncf_ = 0;

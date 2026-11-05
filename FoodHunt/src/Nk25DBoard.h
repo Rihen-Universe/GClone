@@ -4,6 +4,7 @@
 // (NkImagePalette::Quantize), les chemins par NkGridPath (NKNavigation). Aucune bibliothèque standard.
 #pragma once
 #include "Nk25D.h"
+#include "Nk25DArt.h"
 #include "NKImage/Core/NkImage.h"
 #include "NKImage/Core/NkImagePalette.h"
 #include "NKNavigation/NkGridPath.h"
@@ -44,20 +45,31 @@ public:
         if (!cells.IsValid()) return false;
         if (autoBg) NkImagePalette::RemoveBackground(cells, NkImagePalette::EstimateBg(cells), 30);
 
-        NkImage quant; NkVector<NkColor> pal;
+        // PALETTE DE JEU (05/11/2026). Avant : k-means (NkImagePalette::Quantize) donnait des teintes quelconques, parfois deux
+        // couleurs presque identiques, jamais les mêmes d'un écran à l'autre. Maintenant chaque cellule opaque est ramenée à la
+        // plus proche des dix couleurs FIXES et bien séparées de pal::GameColor ; on ne garde que les `maxColors` plus
+        // fréquentes (les autres cellules passent à la plus proche des gardées) ; les doublons sont fusionnés d'office puisque
+        // deux cellules ramenées à la même couleur de jeu ont le même indice. L'image reste reconnaissable, aucun niveau n'a
+        // deux couleurs proches. Le compte par couleur (left_) se refait ensuite (Recount) : il suit la NOUVELLE palette.
         const int n = gw * gh;
         c_.Resize(n); cool_.Resize(n); acc_.Clear();
         for (int i = 0; i < n; ++i) { c_[i] = EMPTY; cool_[i] = 0; }
         np = 0;
-        if (!NkImagePalette::Quantize(cells, NkClamp(maxColors, 1, (int)MAX_PAL), quant, &pal, 7u)) { time_ = 0; Recount(); return false; }
-        int remap[MAX_PAL]; for (int q = 0; q < MAX_PAL; ++q) remap[q] = -1;
-        for (int cy = 0; cy < gh; ++cy) for (int cx = 0; cx < gw; ++cx) {
-            const uint8* p = quant.RowPtr(cy) + cx * 4;
-            if (cells.RowPtr(cy)[cx * 4 + 3] < 128) continue;                     // case vide
-            int b = 0; for (usize q = 0; q < pal.Size(); ++q) if (pal[q].r == p[0] && pal[q].g == p[1] && pal[q].b == p[2]) { b = (int)q; break; }
-            if (remap[b] < 0) { remap[b] = np; palette[np++] = pal[b]; }          // palette compacte : couleurs réellement utilisées
-            c_[cy * gw + cx] = (uint8)remap[b];
+        NkVector<uint8> g; g.Resize((usize)n); int cnt[kNbGameColors] = {};
+        for (int i = 0; i < n; ++i) {
+            const uint8* px = cells.RowPtr(i / gw) + (i % gw) * 4;
+            if (px[3] < 128) { g[i] = EMPTY; continue; }                                 // case vide
+            g[i] = (uint8)NearestGameColor(px[0], px[1], px[2]); ++cnt[g[i]];
         }
+        unsigned keep = 0; int order[kNbGameColors], nk = 0;
+        for (int k = 0; k < NkClamp(maxColors, 1, (int)kNbGameColors); ++k) {
+            int b = -1; for (int c = 0; c < kNbGameColors; ++c) if (!(keep & (1u << c)) && cnt[c] > 0 && (b < 0 || cnt[c] > cnt[b])) b = c;
+            if (b < 0) break; keep |= 1u << b; order[nk++] = b;
+        }
+        int remap[kNbGameColors]; for (int c = 0; c < kNbGameColors; ++c) remap[c] = -1;
+        for (int k = 0; k < nk; ++k) { remap[order[k]] = np; palette[np++] = GameColor(order[k]); }
+        for (int c = 0; c < kNbGameColors; ++c) if (remap[c] < 0 && cnt[c] > 0) { NkColor q = GameColor(c); remap[c] = remap[NearestGameColor(q.r, q.g, q.b, keep)]; }
+        for (int i = 0; i < n; ++i) if (g[i] != EMPTY) c_[i] = (uint8)remap[g[i]];
         time_ = 0; Recount(); UpdateReach();
         return np > 0;
     }
@@ -205,11 +217,11 @@ public:
         NkVec2f T[8] = { cam.Project(x0 + g + c, y0, ch), cam.Project(x0 + cs - g - c, y0, ch), cam.Project(x0 + cs - g, y0 + c, ch),
                          cam.Project(x0 + cs - g, y0 + cs - c, ch), cam.Project(x0 + cs - g - c, y0 + cs, ch), cam.Project(x0 + g + c, y0 + cs, ch),
                          cam.Project(x0 + g, y0 + cs - c, ch), cam.Project(x0 + g, y0 + c, ch) };
-        dl.AddConvexPolyFilled(T, 8, col.Shade(1.04f));
+        dl.AddConvexPolyFilled(T, 8, col.Lerp(NkColor(255, 255, 255, 255), 0.04f));
         NkVec2f I[8] = { cam.Project(x0 + b + cb, y0 + b, ch), cam.Project(x0 + cs - b - cb, y0 + b, ch), cam.Project(x0 + cs - b, y0 + b + cb, ch),
                          cam.Project(x0 + cs - b, y0 + cs - b - cb, ch), cam.Project(x0 + cs - b - cb, y0 + cs - b, ch), cam.Project(x0 + b + cb, y0 + cs - b, ch),
                          cam.Project(x0 + b, y0 + cs - b - cb, ch), cam.Project(x0 + b, y0 + b + cb, ch) };
-        dl.AddConvexPolyFilled(I, 8, col.Shade(1.17f));
+        dl.AddConvexPolyFilled(I, 8, col.Lerp(NkColor(255, 255, 255, 255), 0.18f));
         // Occlusion : filet sombre sur chaque arête partagée avec un voisin (haut, droite, bas, gauche).
         const NkColor crease(0, 0, 0, 34);
         const float lw = 0.9f * cam.Scale();

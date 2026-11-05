@@ -83,10 +83,10 @@ inline void GameTextOutline(Dl& dl, float cx, float cy, float size, const char* 
 // le liseré disparaîtrait à petite taille.
 inline void DrawSphere(Dl& dl, const NkView25D& cam, float x, float y, float z, float r, const NkColor& base) {
     NkVec2f c = cam.Project(x, y, z);
-    dl.AddEllipseFilled(c, r + NkMax(0.7f, r * .11f), r + NkMax(0.7f, r * .11f), base.Shade(0.38f));
-    dl.AddEllipseFilled(c, r, r, base.Shade(0.60f));
+    dl.AddEllipseFilled(c, r + NkMax(0.7f, r * .11f), r + NkMax(0.7f, r * .11f), base.Shade(0.55f));
+    dl.AddEllipseFilled(c, r, r, base.Shade(0.78f));
     dl.AddEllipseFilled(NkVec2f(c.x - r * .10f, c.y - r * .12f), r * .88f, r * .88f, base);
-    dl.AddEllipseFilled(NkVec2f(c.x - r * .30f, c.y - r * .35f), r * .40f, r * .32f, base.Shade(1.35f));
+    dl.AddEllipseFilled(NkVec2f(c.x - r * .30f, c.y - r * .35f), r * .40f, r * .32f, base.Lerp(NkColor(255, 255, 255, 255), 0.45f));
 }
 
 // =============================================================================
@@ -214,15 +214,15 @@ public:
             float lit = NkClamp(0.5f + 0.35f * (nv.x * lv.x + nv.y * lv.y), 0.4f, 0.95f);
             NkVec2f q[4] = { cam.Project(a.x, a.y, z0), cam.Project(b.x, b.y, z0), cam.Project(b.x, b.y, z1), cam.Project(a.x, a.y, z1) };
             dl.AddConvexPolyFilled(q, 4, color.Shade(lit));
-            dl.AddLine(q[3], q[2], color.Shade(1.35f), 1.5f * sc_ * cam.Scale());
+            dl.AddLine(q[3], q[2], color.Lerp(NkColor(255, 255, 255, 255), 0.35f), 1.5f * sc_ * cam.Scale());
         }
         NkVec2f T[4], I[4]; float k = 1 - 8.f / NkMin(w, d);
         for (int i = 0; i < 4; ++i) {
             T[i] = cam.Project(c[i].x, c[i].y, z1);
             I[i] = cam.Project(x + (c[i].x - x) * k, y + (c[i].y - y) * k, z1);
         }
-        dl.AddConvexPolyFilled(T, 4, color.Shade(1.30f));
-        dl.AddConvexPolyFilled(I, 4, color.Shade(1.12f));
+        dl.AddConvexPolyFilled(T, 4, color.Lerp(NkColor(255, 255, 255, 255), 0.22f));
+        dl.AddConvexPolyFilled(I, 4, color.Lerp(NkColor(255, 255, 255, 255), 0.10f));
         if (showText && sc_ > 0.6f) {
             NkString s = mystery ? NkString("?") : NkFormat("{0}", value);
             NkVec2f t = cam.Project(x, y, z1);
@@ -284,7 +284,10 @@ public:
 
     // Appelé par Scene lors d'une collision : dévie le long de l'obstacle
     void Nudge(float nx, float ny) {
-        float tx = -ny, ty = nx, wx = tx_ - x, wy = ty_ - y;
+        // Le côté de contournement se choisit d'après le POINT DE PASSAGE COURANT et non la cible finale : sinon, dans une impasse
+        // (cul-de-sac dont la sortie est à l'opposé de la cible), l'évitement pousse la fourmi vers le fond et elle reste coincée.
+        const float gx = iwp_ < nwp_ ? wp_[iwp_].x : tx_, gy = iwp_ < nwp_ ? wp_[iwp_].y : ty_;
+        float tx = -ny, ty = nx, wx = gx - x, wy = gy - y;
         if (tx * wx + ty * wy < 0) { tx = -tx; ty = -ty; }
         avX_ = tx; avY_ = ty; avT_ = 0.4f;
     }

@@ -23,6 +23,34 @@ namespace pal {
     inline NkColor Osier()   { return NkColor(214, 168, 96, 255); }
 }
 
+// ---- LA PALETTE DE JEU (Rodolf, 05/11 : « les couleurs ne vont pas ») --------------------------------------------
+// Dix couleurs vives et bien SÉPARÉES. Chaque couleur d'une image de niveau est ramenée à la plus proche de celles-ci
+// (Board::LoadFromImage) : un niveau n'a donc jamais deux couleurs proches, et la MÊME couleur exacte sert au cube, à la
+// fourmi, au panier et à l'alvéole. Le blanc et le brun sombre y sont pour les images claires et sombres.
+constexpr int kNbGameColors = 10;
+inline NkColor GameColor(int i) {
+    static const unsigned char t[kNbGameColors][3] = {
+        {228, 52, 52}, {255, 146, 30}, {250, 214, 40}, {84, 190, 62}, {28, 190, 180},
+        {52, 112, 232}, {146, 76, 204}, {250, 122, 190}, {245, 245, 240}, {104, 66, 40} };
+    i = i < 0 ? 0 : (i >= kNbGameColors ? kNbGameColors - 1 : i);
+    return NkColor(t[i][0], t[i][1], t[i][2], 255);
+}
+// Couleur la plus proche (distance « redmean », approximation de la perception : le rouge pèse plus quand le pixel est rouge).
+inline int NearestGameColor(int r, int g, int b, unsigned mask = 0xffffffffu) {
+    int best = 0; long bd = 0x7fffffffL;
+    for (int i = 0; i < kNbGameColors; ++i) {
+        if (!(mask & (1u << i))) continue;
+        NkColor c = GameColor(i); long rm = (r + c.r) / 2, dr = r - c.r, dg = g - c.g, db = b - c.b;
+        long d = (2 + rm / 256) * dr * dr + 4 * dg * dg + (2 + (255 - rm) / 256) * db * db;
+        if (d < bd) { bd = d; best = i; }
+    }
+    return best;
+}
+// La couleur « mystère » : un gris-bleu sombre qu'aucune couleur de la palette ne rappelle.
+inline NkColor MysteryColor() { return NkColor(58, 66, 92, 255); }
+// Éclaircir sans changer de teinte : on mélange vers le blanc (Shade > 1 écrête chaque canal et vire au jaune/blanc).
+inline NkColor Lighten(const NkColor& c, float t) { return c.Lerp(NkColor(255, 255, 255, 255), t); }
+
 // ---- Petits outils -------------------------------------------------------------------------------------------
 inline float Rad(float deg) { return deg * (NK_PI_F / 180.f); }
 
@@ -40,6 +68,20 @@ inline bool InHex(float x, float y, float cx, float cy, float R) {
     return dx <= 0.8660254f * R && dy <= R - dx * 0.5773503f;
 }
 
+// Hexagone « sommets plats » (nid d'abeilles par COLONNES) : sommets aux angles 0, 60, 120... ; largeur 2 R, hauteur sqrt(3) R.
+// Colonnes espacées de 1.5 R ; une colonne sur deux décalée d'une demi-hauteur ; DANS une colonne les alvéoles sont
+// l'une sous l'autre, donc une alvéole qui monte dans sa colonne monte tout droit. `sx` écrase en largeur (bascule).
+inline void HexPolyFlat(Dl& dl, float cx, float cy, float R, const NkColor& c, float sx = 1.f) {
+    NkVec2f p[6];
+    for (int k = 0; k < 6; ++k) { float a = Rad(60.f * k); p[k] = NkVec2f(cx + sx * R * NkCos(a), cy + R * NkSin(a)); }
+    dl.AddConvexPolyLisse(p, 6, c);
+}
+// Test de clic, hexagone à sommets plats : |dy| <= (sqrt(3)/2) R et |dx| <= R - |dy| / sqrt(3) (arêtes obliques, pente sqrt(3)).
+inline bool InHexFlat(float x, float y, float cx, float cy, float R) {
+    float dx = NkAbs(x - cx), dy = NkAbs(y - cy);
+    return dy <= 0.8660254f * R && dx <= R - dy * 0.5773503f;
+}
+
 // Étoile à cinq branches (non convexe : dix triangles issus du centre).
 inline void Star(Dl& dl, float cx, float cy, float R, const NkColor& c) {
     NkVec2f p[10];
@@ -53,6 +95,14 @@ inline void Pill(Dl& dl, float cx, float cy, float w, float h, const NkColor& c,
     dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f + h * .09f, w, h), c.Shade(0.62f), NkMin(r, NkMin(w, h) * .499f));
     dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f, w, h * .93f), c, NkMin(r, NkMin(w, h) * .499f));
     dl.AddRectFilled(nkgui::NkRect(cx - w * .5f + h * .08f, cy - h * .5f + h * .06f, w - h * .16f, NkMin(h * .34f, 16.f)), c.Shade(1.16f), NkMin(r, h * .17f));
+}
+
+// Carte (panneaux de victoire et d'échec, 05/11) : ombre douce centrée un peu plus bas (quatre rectangles de plus en plus
+// grands et transparents, comme l'assiette), corps uni, simple filet clair en haut. Plus de reflet en demi-carte.
+inline void Card(Dl& dl, float cx, float cy, float w, float h, const NkColor& c, float rounding) {
+    for (int i = 4; i >= 1; --i) { float g = i * 4.f; dl.AddRectFilled(nkgui::NkRect(cx - w * .5f - g, cy - h * .5f - g + 10.f, w + 2 * g, h + 2 * g), NkColor(20, 40, 15, 26), rounding + g); }
+    dl.AddRectFilled(nkgui::NkRect(cx - w * .5f, cy - h * .5f, w, h), c, rounding);
+    dl.AddRect(nkgui::NkRect(cx - w * .5f + 1.f, cy - h * .5f + 1.f, w - 2.f, h - 2.f), NkColor(255, 255, 255, 160), 2.f, rounding);
 }
 
 // ---- Fond : l'herbe --------------------------------------------------------------------------------------------
@@ -140,7 +190,7 @@ inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint
     }
     const float k = 1.f + 0.10f * rebond; cy -= 9.f * rebond;
     const float W = w * k, H = h * k;
-    NkColor base = pal::Osier().Lerp(tint, 0.42f), dark = base.Shade(0.66f), light = base.Shade(1.18f);
+    NkColor base = pal::Osier().Lerp(tint, 0.90f), dark = tint.Shade(0.58f), light = Lighten(tint, 0.28f);   // 90 % de la couleur des fourmis : tressage plus sombre de la MÊME teinte
     dl.AddEllipseFilled(NkVec2f(cx + 3.f, cy + H * .52f), W * .52f, H * .13f, NkColor(20, 50, 15, 55));    // ombre sur l'herbe
     dl.AddBezierCubic(NkVec2f(cx - .40f*W, cy - .46f*H), NkVec2f(cx - .55f*W, cy - 1.35f*H), NkVec2f(cx + .55f*W, cy - 1.35f*H), NkVec2f(cx + .40f*W, cy - .46f*H), dark, W * .075f, 0, true);   // anse
     NkVec2f p[6] = { NkVec2f(cx - .5f*W, cy - .46f*H), NkVec2f(cx + .5f*W, cy - .46f*H), NkVec2f(cx + .42f*W, cy + .25f*H), NkVec2f(cx + .30f*W, cy + .5f*H), NkVec2f(cx - .30f*W, cy + .5f*H), NkVec2f(cx - .42f*W, cy + .25f*H) };
@@ -166,32 +216,33 @@ inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint
 }
 
 // ---- Alvéole du rayon de miel ----------------------------------------------------------------------------------
-// Une cellule hexagonale : liseré clair si elle est jouable, lèvre sombre dessous (épaisseur), face de la couleur du
-// bloc, reflet brillant en haut à gauche, nombre contouré. `dispo` faux = alvéole assombrie (pas encore atteignable) ;
-// `mystere` = fond violet et point d'interrogation ; `pose` (0..1) fait pousser la cellule (apparition).
-inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c, const char* txt, bool dispo, bool mystere, bool joue) {
-    NkColor base = mystere ? NkColor(160, 112, 206, 255) : c;
-    if (!dispo) base = base.Lerp(NkColor(84, 66, 52, 255), 0.55f);
-    if (joue) HexPoly(dl, cx, cy + R * .02f, R * 1.0f, NkColor(255, 255, 255, 235));                // anneau de sélection
+// Une cellule hexagonale à sommets plats : liseré clair si elle est jouable, lèvre dessous (épaisseur), face de la couleur
+// EXACTE du bloc, reflet sur l'arête haute, nombre contouré. `dispo` faux : la teinte est PÂLIE (mélangée de blanc), jamais
+// brunie. `mystere` : fond gris-bleu sombre propre aux blocs mystère. `k` (0..1] fait pousser la cellule (apparition), `sx`
+// l'écrase en largeur (bascule de la révélation d'un mystère).
+inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c, const char* txt, bool dispo, bool mystere, bool joue, float k = 1.f, float sx = 1.f) {
+    NkColor base = mystere ? MysteryColor() : c;
+    if (!dispo) base = base.Lerp(NkColor(246, 242, 232, 255), 0.50f);
+    R *= k;
+    if (joue) HexPolyFlat(dl, cx, cy + R * .02f, R * 1.0f, NkColor(255, 255, 255, 235), sx);
     const float r = joue ? R * .93f : R * .96f;
-    HexPoly(dl, cx, cy + R * .10f, r, base.Shade(0.55f));                                           // lèvre
-    HexPoly(dl, cx, cy, r, base.Shade(0.86f));
-    HexPoly(dl, cx, cy - R * .04f, r * .88f, base);
-    HexPoly(dl, cx, cy - R * .16f, r * .66f, base.Shade(dispo ? 1.14f : 1.05f));
-    if (dispo) {                                                                                    // reflet : arête haute-gauche
-        NkVec2f a(cx - r * .72f, cy - r * .34f), b(cx - r * .02f, cy - r * .80f);
-        dl.AddLine(a, b, NkColor(255, 255, 255, 190), R * .085f);
-        dl.AddEllipseFilled(NkVec2f(cx - r * .74f, cy - r * .34f), R * .05f, R * .05f, NkColor(255, 255, 255, 190));
+    HexPolyFlat(dl, cx, cy + R * .10f, r, base.Shade(0.60f), sx);                                   // lèvre
+    HexPolyFlat(dl, cx, cy, r, base.Shade(0.84f), sx);
+    HexPolyFlat(dl, cx, cy - R * .04f, r * .88f, base, sx);
+    HexPolyFlat(dl, cx, cy - R * .12f, r * .64f, Lighten(base, mystere ? 0.10f : 0.20f), sx);
+    if (dispo) {                                                                                    // reflet : arête haute
+        const float h = r * .866f;
+        dl.AddLine(NkVec2f(cx - r * .38f * sx, cy - h * .80f), NkVec2f(cx + r * .30f * sx, cy - h * .80f), NkColor(255, 255, 255, 170), R * .08f);
     }
     int lum = (base.r * 3 + base.g * 6 + base.b) / 10;
-    NkColor tc = lum > 175 ? pal::Brun() : NkColor(255, 255, 255, 255), oc = lum > 175 ? NkColor(255, 255, 255, 200) : NkColor(60, 40, 30, 220);
-    if (!dispo) { tc.a = 170; oc.a = 120; }
-    GameTextOutline(dl, cx, cy - R * .02f, R * .72f, txt, tc, oc);
+    NkColor tc = lum > 175 ? pal::Brun() : NkColor(255, 255, 255, 255), oc = lum > 175 ? NkColor(255, 255, 255, 200) : NkColor(40, 28, 24, 220);
+    if (!dispo) { tc.a = 190; oc.a = 140; }
+    if (sx > 0.35f && k > 0.5f) GameTextOutline(dl, cx, cy - R * .02f, R * .72f, txt, tc, oc);
 }
 // Alvéole vide (place du rayon sans bloc) : un creux ambré à peine visible, pour que le rayon reste lisible.
 inline void DrawEmptyCell(Dl& dl, float cx, float cy, float R) {
-    HexPoly(dl, cx, cy, R * .96f, NkColor(120, 84, 30, 60));
-    HexPoly(dl, cx, cy + R * .04f, R * .84f, NkColor(70, 44, 14, 45));
+    HexPolyFlat(dl, cx, cy, R * .96f, NkColor(120, 84, 30, 60));
+    HexPolyFlat(dl, cx, cy + R * .04f, R * .84f, NkColor(70, 44, 14, 45));
 }
 
 // ---- Icônes des bonus --------------------------------------------------------------------------------------------

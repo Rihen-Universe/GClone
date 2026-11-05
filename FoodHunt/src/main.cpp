@@ -45,11 +45,14 @@ protected:
             if (a == "--bot") mBot = true;
             else if (a == "--verifier-niveaux") mBanc = true;
             else if (a == "--ancien-comportement") mLegacy = true;
+            else if (StartsWith(a, "--clic-a=")) mClicA = ParseInt(a.CStr() + 9, -1);     // essai : un clic sur la tête de la colonne 1 à la trame n
+            else if (StartsWith(a, "--clic-b=")) mClicB = ParseInt(a.CStr() + 9, -1);     // essai : un second clic (colonne 2) à la trame n
+            else if (a == "--decaler-clic") mDecale = 300.f;                       // contre-épreuve : les clics du bot ratent leur cible
             else if (StartsWith(a, "--casser-niveau=")) mCasser = ParseInt(a.CStr() + 16, 0);
             else if (StartsWith(a, "--rapport=")) mRapport = NkString(a.CStr() + 10);
             else if (StartsWith(a, "--niveau=")) { mStart = math::NkClamp(ParseInt(a.CStr() + 9, 1), 1, 25) - 1; mSolo = true; }
             else if (StartsWith(a, "--avance=")) mAvance = (float)ParseInt(a.CStr() + 9, 0);
-            else if (StartsWith(a, "--fenetre=")) { const char* q = a.CStr() + 10; int w = ParseInt(q, 480); while (*q >= '0' && *q <= '9') ++q; if (*q == 'x') ++q; int h = ParseInt(q, 960); Config().width = (uint32)w; Config().height = (uint32)h; }
+            else if (StartsWith(a, "--fenetre=")) { const char* q = a.CStr() + 10; int w = ParseInt(q, 480); while (*q >= '0' && *q <= '9') ++q; if (*q == 'x') ++q; int h = ParseInt(q, 960); Config().width = (uint32)w; Config().height = (uint32)h; mFenW = (float)w; mFenH = (float)h; }
         }
         if (mBanc && mBot) return NkOptional<int>(RunBench());
         return NkOptional<int>();
@@ -66,16 +69,18 @@ protected:
         if (mLib.LoadEmbedded() <= 0) return false;
         mLevel = math::NkClamp(mStart, 0, mLib.Count() - 1);
         if (!StartLevel(mLevel)) return false;
-        if (mBot) mGame.AutoPlay(true);
-        if (mAvance > 0.f) {                                                // essais : avancer la partie avant la capture
-            mGame.AutoPlay(true); mGame.SetBotPeriod(0.3f);
-            for (float t = 0.f; t < mAvance && mGame.GetState() == nk25d::Gameplay::PLAYING; t += 1.f / 30.f) mGame.Tick(1.f / 30.f);
-            mGame.AutoPlay(mBot);
+        if (mAvance > 0.f) {                                                // essais : avancer la partie (le bot CLIQUE) avant la capture
+            mGame.SetBotPeriod(0.3f);
+            for (float t = 0.f; t < mAvance && mGame.GetState() == nk25d::Gameplay::PLAYING; t += 1.f / 30.f) { mGame.Tick(1.f / 30.f); BotStep(1.f / 30.f); }
         }
         return true;
     }
     void OnTick(float32 dt) override {
+        ++mTick;
+        { float lx, ly; int col = mTick == mClicA ? 1 : (mTick == mClicB ? 2 : -1);
+          if (col >= 0 && mGame.CellPoint(col, 0, lx, ly)) Tap(lx * mGame.ViewScale(), ly * mGame.ViewScale()); }
         mGame.Tick(dt);
+        if (mBot) BotStep(dt * mGame.TimeScale());
         if (mBot && mGame.GetState() != nk25d::Gameplay::PLAYING && mGame.EndTime() > 2.5f)          // le bot enchaîne les niveaux
             StartLevel(mGame.GetState() == nk25d::Gameplay::WON ? (mLevel + 1) % mLib.Count() : mLevel);
     }
@@ -106,14 +111,24 @@ protected:
     // Entrée souris / doigt : un appui est un tap, en pixels client -> coordonnées logiques (division par l'échelle).
     bool OnPointer(const NkPointer& ptr) override {
         if (ptr.phase != NkPointerPhase::NK_POINTER_DOWN) return false;
-        const float k = mGame.ViewScale();
-        nk25d::Gameplay::Action a = mGame.OnTap(ptr.x / k, ptr.y / k);
-        if (a == nk25d::Gameplay::ACT_NEXT) StartLevel((mLevel + 1) % mLib.Count());
-        else if (a == nk25d::Gameplay::ACT_RESTART) StartLevel(mLevel);
+        Tap(ptr.x, ptr.y);
         return true;
     }
 
 private:
+    // LE chemin du clic : pixels d'écran -> coordonnées logiques (division par l'échelle de la vue) -> Gameplay::OnTap.
+    // La souris, le doigt ET le bot passent tous par ici : le bot ne pose plus un bloc par un appel direct.
+    void Tap(float px, float py) {
+        const float k = mGame.ViewScale();
+        nk25d::Gameplay::Action a = mGame.OnTap(px / k, py / k);
+        if (a == nk25d::Gameplay::ACT_NEXT) StartLevel((mLevel + 1) % mLib.Count());
+        else if (a == nk25d::Gameplay::ACT_RESTART) StartLevel(mLevel);
+    }
+    // Le bot « appuie » : il rend un point de l'écran logique, on le convertit en pixels (comme un vrai doigt) et on tape.
+    void BotStep(float dt) {
+        float lx, ly;
+        if (mGame.GetState() == nk25d::Gameplay::PLAYING && mGame.BotTick(dt, lx, ly)) Tap(lx * mGame.ViewScale() + mDecale, ly * mGame.ViewScale());
+    }
     // Met à l'échelle les sommets ajoutés depuis v0 (le plan logique -> les pixels).
     static void Scale(nkgui::NkGuiDrawList& dl, usize v0, float k) { for (usize i = v0; i < dl.vtx.Size(); ++i) { dl.vtx[i].pos.x *= k; dl.vtx[i].pos.y *= k; } }
 
@@ -123,7 +138,6 @@ private:
         if (!mLib.LoadLevel(i, *mBoard)) return false;
         mGame.SetWindow(mWinW, mWinH);
         mGame.Init(&mScene, mBoard, i + 1);
-        if (mBot) mGame.AutoPlay(true);
         if (mCasser == i + 1) mGame.BreakLevel();
         if (mLegacy) mGame.SetLegacy(true);
         return true;
@@ -160,11 +174,16 @@ private:
             if (mSolo && i != mStart) continue;
             nk25d::Scene scene; nk25d::Board* board = scene.Add<nk25d::Board>();
             if (!lib.LoadLevel(i, *board)) { rap += NkFormat("{0} : ECHEC chargement\n", i + 1); ++fails; continue; }
-            nk25d::Gameplay g; g.Init(&scene, board, i + 1); g.SetBotPeriod(0.25f); g.AutoPlay(true);
+            nk25d::Gameplay g; g.Init(&scene, board, i + 1); g.SetWindow(mFenW, mFenH); g.SetBotPeriod(0.25f);
             if (mCasser == i + 1) g.BreakLevel();
             if (mLegacy) g.SetLegacy(true);
             const int cubes = board->Remaining(); int steps = 0;
-            while (g.GetState() == nk25d::Gameplay::PLAYING && steps < 30 * 900) { g.Tick(1.f / 30.f); ++steps; }
+            // Le bot joue PAR LE CLIC : point d'appui (logique) -> pixels d'écran -> retour en logique -> OnTap, comme un doigt.
+            const float kv = g.ViewScale();
+            while (g.GetState() == nk25d::Gameplay::PLAYING && steps < 30 * 900) {
+                g.Tick(1.f / 30.f); ++steps; float lx, ly;
+                if (g.BotTick(1.f / 30.f, lx, ly)) g.OnTap((lx * kv + mDecale) / kv, ly);
+            }
             const nk25d::Stats& s = g.stats; NkString why;
             NkString ants = g.GetState() == nk25d::Gameplay::PLAYING ? g.DescribeAnts() : NkString();
             if (g.GetState() == nk25d::Gameplay::LOST) ants += g.DescribeState();
@@ -175,6 +194,7 @@ private:
             if (s.returned != s.spawned) why += NkFormat(" retours({0})!=sorties({1})", s.returned, s.spawned);
             if (s.unreserved) why += NkFormat(" sorties-sans-reservation({0})", s.unreserved);
             if (s.dupExit) why += NkFormat(" fourmis-ressorties({0})", s.dupExit);
+            if (g.GetState() == nk25d::Gameplay::WON && s.tapped != s.blocks) why += NkFormat(" blocs-poses-sans-clic({0}/{1})", s.tapped, s.blocks);
             if (s.dupReserve) why += NkFormat(" bloc-reserve-deux-fois({0})", s.dupReserve);
             if (s.lostBlock) why += NkFormat(" bloc-reserve-disparu({0})", s.lostBlock);
             const bool ok = why.Empty(); if (!ok) ++fails;
@@ -186,7 +206,7 @@ private:
     }
 
     nk25d::Scene mScene; nk25d::Board* mBoard = nullptr; nk25d::Gameplay mGame; nk25d::LevelLibrary mLib;
-    float mWinW = kRefW, mWinH = kRefH, mAvance = 0.f;
+    float mWinW = kRefW, mWinH = kRefH, mAvance = 0.f, mFenW = kRefW, mFenH = kRefH, mDecale = 0.f; int mTick = 0, mClicA = -1, mClicB = -1;
     int mLevel = 0, mStart = 0, mCasser = 0; bool mSolo = false, mBot = kAutoPlay, mBanc = false, mLegacy = false;
     NkString mRapport = NkString("foodhunt_banc.txt");
 };

@@ -25,33 +25,3 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
 OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
 OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
-## Liste des images
-
-| Fichier | Emoji | Dossier source |
-|---|---|---|
-| hamburger.png | Hamburger | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Hamburger/3D |
-| pizza.png | Pizza | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Pizza/3D |
-| french_fries.png | French fries | https://github.com/microsoft/fluentui-emoji/tree/main/assets/French%20fries/3D |
-| hot_dog.png | Hot dog | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Hot%20dog/3D |
-| sandwich.png | Sandwich | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Sandwich/3D |
-| cheese_wedge.png | Cheese wedge | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cheese%20wedge/3D |
-| croissant.png | Croissant | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Croissant/3D |
-| baguette_bread.png | Baguette bread | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Baguette%20bread/3D |
-| pancakes.png | Pancakes | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Pancakes/3D |
-| doughnut.png | Doughnut | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Doughnut/3D |
-| cookie.png | Cookie | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cookie/3D |
-| shortcake.png | Shortcake | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Shortcake/3D |
-| soft_ice_cream.png | Soft ice cream | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Soft%20ice%20cream/3D |
-| red_apple.png | Red apple | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Red%20apple/3D |
-| banana.png | Banana | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Banana/3D |
-| strawberry.png | Strawberry | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Strawberry/3D |
-| watermelon.png | Watermelon | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Watermelon/3D |
-| carrot.png | Carrot | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Carrot/3D |
-| avocado.png | Avocado | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Avocado/3D |
-| cherries.png | Cherries | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cherries/3D |
-| pineapple.png | Pineapple | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Pineapple/3D |
-| grapes.png | Grapes | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Grapes/3D |
-| popcorn.png | Popcorn | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Popcorn/3D |
-| cupcake.png | Cupcake | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Cupcake/3D |
-| taco.png | Taco | https://github.com/microsoft/fluentui-emoji/tree/main/assets/Taco/3D |

@@ -223,8 +223,8 @@ inline void DrawBasket(Dl& dl, float cx, float cy, float sz, const NkColor& tint
 inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c, const char* txt, bool dispo, bool mystere, bool joue, float k = 1.f, float sx = 1.f) {
     NkColor base = mystere ? MysteryColor() : c;
     // DISPONIBLE : couleur pleine, plus marquée (bord brun, relief), relief (lèvre, face, reflet), bord brun marqué : même un blanc existe.
-    // NON DISPONIBLE : teinte pâlie, plus petite (x 0.84), PLATE (une seule face, pas de lèvre ni de reflet). L'écart saute aux yeux.
-    if (!dispo) base = base.Lerp(NkColor(246, 242, 232, 255), 0.55f);
+    // NON DISPONIBLE : même teinte assombrie, plus petite, PLATE (une seule face, pas de lèvre ni de reflet). L'écart saute aux yeux.
+    if (!dispo) base = base.Shade(0.72f);   // (05/11) assombrie et non pâlie : mêlé de crème, le rouge devenait rose, une AUTRE couleur du jeu
     R *= k * (dispo ? 0.96f : 0.82f);
     const NkColor bord = pal::Brun();
     dl.AddEllipseFilled(NkVec2f(cx + R * .06f, cy + R * .86f), R * .90f * sx, R * .22f, NkColor(30, 20, 10, dispo ? 70 : 40));   // ombre portée (le blanc existe)
@@ -233,7 +233,7 @@ inline void DrawHoneyCell(Dl& dl, float cx, float cy, float R, const NkColor& c,
         HexPolyFlat(dl, cx, cy + R * .10f, R, bord.Shade(0.8f), sx);                                // lèvre sombre
         HexPolyFlat(dl, cx, cy, R * .98f, bord, sx);                                                // bord brun marqué
         HexPolyFlat(dl, cx, cy - R * .02f, R * .90f, base, sx);
-        HexPolyFlat(dl, cx, cy - R * .08f, R * .66f, Lighten(base, mystere ? 0.10f : 0.22f), sx);
+        HexPolyFlat(dl, cx, cy - R * .08f, R * .66f, Lighten(base, 0.08f), sx);
         const float h = R * .866f;
         dl.AddLine(NkVec2f(cx - R * .38f * sx, cy - h * .78f), NkVec2f(cx + R * .30f * sx, cy - h * .78f), NkColor(255, 255, 255, 190), R * .08f);
     } else {

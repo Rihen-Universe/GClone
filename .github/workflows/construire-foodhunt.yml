@@ -67,6 +67,13 @@ jobs:
           unzip -q kit.zip -d ../Kits
           grep -E "construit le|Cibles" ../Kits/NKCanvas/KIT.txt
 
+      # Jenga signe l'APK avec cette clé de test ; sans elle, Android refuse l'installation.
+      - name: Clé de test Android
+        if: matrix.nom == 'android-arm64'
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android             -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Construire FoodHunt
         run: python3 -m Jenga build --target FoodHunt --config Release --platform "${{ matrix.plateforme }}" --no-daemon
 

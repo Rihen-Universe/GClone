@@ -30,6 +30,12 @@ jobs:
           curl -sSL --fail -o kit.zip "$KITS/NKCanvas-kit-Android-arm64.zip"
           unzip -q kit.zip -d ../Kits
 
+      # Jenga signe l'APK avec cette clé de test ; sans elle, Android refuse l'installation.
+      - name: Clé de test Android
+        run: |
+          mkdir -p ~/.android
+          keytool -genkeypair -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android             -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
+
       - name: Construire l'APK
         run: |
           python3 -m Jenga build --target FoodHunt --config Release --platform Android-arm64 --no-daemon

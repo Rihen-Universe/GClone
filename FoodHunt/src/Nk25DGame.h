@@ -114,11 +114,18 @@ public:
     // (pixels), puis on place le groupe « assiette + nid » au milieu de la zone libre entre l'en-tête et les paniers en
     // décalant `center`. Le MONDE ne bouge jamais : seule la vue change (un redimensionnement ne déplace aucune fourmi).
     // Les coordonnées LOGIQUES de l'interface sont celles du plan de la vue : [0, size.x] x [0, size.y].
+    //
+    // ZONE SÛRE (05/11/2026). Sur téléphone, une encoche, la barre de statut ou l'indicateur de geste couvrent les bords de
+    // l'écran. L'herbe et la nappe y vont quand même (DrawBackground, sinon une bande vide), mais rien de ce qu'on lit ou touche.
+    // La vue s'adapte donc au rectangle utile (fenêtre moins les marges), et tout le jeu est décalé de (safeL_, safeT_) pixels.
+    void SetSafeArea(float top, float bottom, float left, float right) { safeT_ = top; safeB_ = bottom; safeL_ = left; safeR_ = right; }
+    float SafeLeft() const { return safeL_; }
+    float SafeTop() const { return safeT_; }
     void SetWindow(float w, float h) {
         winW_ = w; winH_ = h;
         if (!sc_) return;
         NkView25D& cam = sc_->camera;
-        cam.Adapt(w, h, 540.f, 1000.f);
+        cam.Adapt(NkMax(1.f, w - safeL_ - safeR_), NkMax(1.f, h - safeT_ - safeB_), 540.f, 1000.f);
         LW_ = cam.size.x; LH_ = cam.size.y;
         if (!board_) return;
         const float tilt = cam.tilt, cs = board_->cs, ch = board_->ch;
@@ -127,6 +134,7 @@ public:
         float top = availTop + NkMax(0.f, (availBot - availTop - groupH) * .5f);
         const NkVec2f origin(LW_ * .5f - board_->gw * cs * .5f, top + ch + 22.f);   // où tombe le point (0, 0) du monde, en logique
         cam.center = cam.size * .5f - origin;                                          // le coin haut-gauche visible est -origin
+        cam.center.x -= safeL_ / cam.Scale(); cam.center.y -= safeT_ / cam.Scale();    // Project rend des pixels : décalage de la zone sûre
         plL_ = origin.x - 20.f; plR_ = origin.x + board_->gw * cs + 20.f; plT_ = origin.y - ch - 22.f; plB_ = origin.y + board_->gh * cs * tilt + 18.f;
     }
     float ViewScale() const { return sc_ ? sc_->camera.Scale() : 1.f; }       // pixels par unité logique
@@ -202,9 +210,11 @@ public:
     // ---- Rendu -----------------------------------------------------------------
     // Zone visible entière, en logique : [0, LW] x [0, LH].
     void DrawBackground(Dl& dl) const {
-        DrawGrass(dl, 0, 0, LW_, LH_);
+        // Le décor déborde sous les marges de la zone sûre : en coordonnées logiques, l'écran entier commence avant 0.
+        const float k = ViewScale(), x0 = -safeL_ / k, y0 = -safeT_ / k, x1 = LW_ + safeR_ / k, y1 = LH_ + safeB_ / k;
+        DrawGrass(dl, x0, y0, x1, y1);
         DrawPlate(dl, plL_, plT_, plR_, plB_);
-        DrawGingham(dl, 0, LH_ - 96.f, LW_, LH_);
+        DrawGingham(dl, x0, LH_ - 96.f, x1, y1);
     }
 
     // Miettes et confettis : au-dessus de la scène, sous l'interface.
@@ -612,7 +622,8 @@ private:
     // (étoiles + « Niveau suivant ») et l'échec (« Recommencer »).
     void DrawEnd(Dl& dl) const {
         const bool win = state_ == WON;
-        dl.AddRectFilled(nkgui::NkRect(0, 0, LW_, LH_), NkColor(20, 40, 15, (uint8)(NkMin(1.f, endT_ / 0.3f) * 120)));
+        { const float k = ViewScale();                                          // le voile couvre aussi les marges de la zone sûre
+          dl.AddRectFilled(nkgui::NkRect(-safeL_ / k, -safeT_ / k, LW_ + (safeL_ + safeR_) / k, LH_ + (safeT_ + safeB_) / k), NkColor(20, 40, 15, (uint8)(NkMin(1.f, endT_ / 0.3f) * 120))); }
         float t = NkClamp(endT_ / 0.45f, 0.f, 1.f), u = t - 1.f, k = 1.f + 2.7f * u * u * u + 1.7f * u * u;       // easeOutBack
         const float cx = LW_ * .5f, cy = LH_ * .5f - 30.f;
         Card(dl, cx, cy, 380.f * k, 330.f * k, pal::Creme(), 36.f * k);
@@ -636,6 +647,7 @@ private:
     }
 
     Scene* sc_ = nullptr; Board* board_ = nullptr; float LW_ = 540, LH_ = 1000, hx_ = 0, hy_ = 0, holeRy_ = 20, antScale_ = 1;
+    float safeT_ = 0, safeB_ = 0, safeL_ = 0, safeR_ = 0;                    // marges de la zone sûre, en pixels
     float winW_ = 540, winH_ = 1000;
     float plL_ = 0, plR_ = 0, plT_ = 0, plB_ = 0;
     StockBlock col_[COLS][MAXCOL]; int len_[COLS] = {};

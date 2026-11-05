@@ -45,11 +45,12 @@ jobs:
       - name: Dépôt GClone
         uses: actions/checkout@v4
 
-      - name: Jenga 2.10.0, celui qui a fabriqué les kits
+      # 2.10.0 plus le correctif du bundle iOS. À remplacer par l'étiquette de la prochaine version de Jenga.
+      - name: Jenga
         uses: actions/checkout@v4
         with:
           repository: Rihen-Universe/Jenga
-          ref: v2.10.0
+          ref: 6708b34ab0e98f994755215cd3ce82efa6f41a21
           path: jenga-src
 
       - name: Dépendances Linux (X11, GL, ALSA)
@@ -71,9 +72,11 @@ jobs:
 
       - name: Le programme existe
         run: |
-          find Build/Bin -type f \( -name 'FoodHunt' -o -name 'FoodHunt.apk' -o -name 'FoodHunt.ipa' \) -print | tee produits.txt
-          test -s produits.txt || find Build/Bin -path '*FoodHunt*' -print | head -40
-          test -s produits.txt
+          case "${{ matrix.nom }}" in
+            android-*) test -s Build/Bin/Release-Android/FoodHunt/FoodHunt.apk ;;
+            ios-*)     test -f Build/Bin/Release-iOS/FoodHunt/FoodHunt.app/Info.plist ;;
+            *)         find Build/Bin -type f -name FoodHunt -print | grep . ;;
+          esac
 
       - name: Artefact
         if: always()

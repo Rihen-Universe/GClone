@@ -1,5 +1,5 @@
 // AUTEUR : TEUGUIA TADJUIDJE Rodolf Séderis — Rihen
-// NkView25D.h — la vue 2.5D : une NkView2D (centre, taille, rotation) à laquelle on ajoute l'inclinaison de la caméra,
+// NkView25D.h : la vue 2.5D : une NkView2D (centre, taille, rotation) à laquelle on ajoute l'inclinaison de la caméra,
 // la lumière et la HAUTEUR z. Créé le 05/11/2026 (Rodolf : « on ne peut pas créer une NkView héritée de NkView2D
 // qui a cet effet ? »). Remplace la structure Camera du jeu.
 //
@@ -56,42 +56,120 @@ namespace nk25d {
 struct NkView25D : nkentseu::renderer::NkView2D {
     using NkVec2f = nkentseu::math::NkVec2f;
 
-    float   tilt = 0.65f;                 // tan(phi) : 0.65 correspond à phi = 33 degrés
-    NkVec2f lightDir{0.55f, 0.30f};       // direction de la lumière (par unité de hauteur)
-    NkVec2f window{540.f, 1000.f};        // taille de la fenêtre en pixels
+    // Inclinaison de la caméra : tan(phi). 0.65 correspond à phi = 33 degrés environ. Sans unité (rapport de longueurs).
+    // Plus la valeur est grande, plus le sol s'étale en hauteur à l'écran ; 1.0 donnerait phi = 45 degrés.
+    float tilt = 0.65f;
 
-    NkView25D() { Neutral(540.f, 1000.f); }
+    // Direction de la lumière, en unités de plan décalées par unité de hauteur : un point à la hauteur z projette son
+    // ombre à (x + 0.55 * z, y + 0.30 * z) sur le sol. C'est la lumière qui vient du haut gauche de l'écran.
+    NkVec2f lightDir{0.55f, 0.30f};
 
-    // Vue NEUTRE de w x h : échelle 1, aucun décalage (Project == ancienne formule avec origine nulle).
-    void Neutral(float w, float h) { window = NkVec2f(w, h); size = window; center = NkVec2f(w * .5f, h * .5f); rotation = 0.f; }
+    // Taille de la fenêtre en pixels (largeur, hauteur). Valeur de départ : une fenêtre portrait 540 x 1000.
+    NkVec2f window{540.f, 1000.f};
 
-    // Échelle d'adaptation : pixels de fenêtre par unité de plan. Formule UNIQUE (la police de l'application l'utilise aussi).
-    static float ScaleFor(float winW, float winH, float refW, float refH) {
-        float a = winW / refW, b = winH / refH, s = a < b ? a : b; return s < 0.2f ? 0.2f : s;
+    // Constructeur : part d'une vue neutre de 540 x 1000 pixels (échelle 1, aucun décalage).
+    NkView25D()
+    {
+        Neutral(540.f, 1000.f);
     }
+
+    // Vue NEUTRE de w x h pixels : échelle 1, aucun décalage (Project rend la même chose que l'ancienne formule
+    // (x, y * tilt - z) avec une origine nulle).
+    //   w, h : taille de la fenêtre en pixels.
+    void Neutral(float w, float h)
+    {
+        // La fenêtre fait w x h pixels.
+        window = NkVec2f(w, h);
+        // La zone visible du plan a la même taille que la fenêtre : une unité de plan vaut un pixel.
+        size = window;
+        // Le centre est au milieu de cette zone : le coin haut gauche visible est donc l'origine (0, 0).
+        center = NkVec2f(w * .5f, h * .5f);
+        // Pas de rotation : voir l'explication de l'en-tête.
+        rotation = 0.f;
+    }
+
+    // Échelle d'adaptation : pixels de fenêtre par unité de plan. Formule UNIQUE (la police de l'application l'utilise
+    // aussi, dans main.cpp, pour que le texte suive la même échelle que le plateau).
+    //   winW, winH : taille de la fenêtre en pixels.   refW, refH : taille du monde de référence en unités de plan.
+    // Rend le plus petit des deux rapports (le monde de référence tient entièrement dans la fenêtre), mais jamais moins
+    // de 0.2 pour éviter une échelle nulle ou négative sur une fenêtre minuscule.
+    static float ScaleFor(float winW, float winH, float refW, float refH)
+    {
+        // Rapport sur la largeur : combien de pixels par unité de plan si on remplit la largeur.
+        float a = winW / refW;
+        // Rapport sur la hauteur : idem pour la hauteur.
+        float b = winH / refH;
+        // On garde le plus petit : l'autre axe aura donc de la marge (qu'Adapt remplit avec plus de monde).
+        float s = a < b ? a : b;
+        // Plancher à 0.2 : une fenêtre dégénérée ne doit pas écraser l'échelle jusqu'à zéro.
+        return s < 0.2f ? 0.2f : s;
+    }
+
     // Adapte la vue à une fenêtre de winW x winH pixels pour un monde de référence refW x refH (voir l'en-tête).
     // Le centre est conservé relativement au coin haut-gauche de la zone visible : on le remet donc à size / 2 ; l'appelant
     // décale ensuite `center` selon sa mise en page (le point du plan qui doit tomber au centre de la fenêtre).
-    void Adapt(float winW, float winH, float refW, float refH) {
+    void Adapt(float winW, float winH, float refW, float refH)
+    {
+        // Une seule échelle pour toute la vue.
         float s = ScaleFor(winW, winH, refW, refH);
-        window = NkVec2f(winW, winH); size = NkVec2f(winW / s, winH / s); center = size * .5f; rotation = 0.f;
+        // La fenêtre garde sa taille réelle en pixels.
+        window = NkVec2f(winW, winH);
+        // La zone visible du plan s'étend sur l'axe en trop : fenêtre divisée par l'échelle.
+        size = NkVec2f(winW / s, winH / s);
+        // Centre au milieu de la zone visible (l'appelant le déplacera ensuite).
+        center = size * .5f;
+        // Toujours sans rotation.
+        rotation = 0.f;
     }
-    float Scale() const { return window.x / size.x; }                // pixels par unité de plan
+
+    // Pixels de fenêtre par unité de plan (vaut 1 pour une vue neutre).
+    float Scale() const
+    {
+        return window.x / size.x;
+    }
 
     // Point du plan de projection (coordonnées « plan », avant la mise en fenêtre).
-    NkVec2f Plane(float x, float y, float z) const { return NkVec2f(x, y * tilt - z); }
-    // Monde -> pixels de fenêtre.
-    NkVec2f Project(float x, float y, float z) const {
+    //   x, y, z : point du monde (z = hauteur au-dessus du sol).
+    // Rend (x, y * tilt - z) : le sol est écrasé par l'inclinaison, la hauteur remonte le point.
+    NkVec2f Plane(float x, float y, float z) const
+    {
+        return NkVec2f(x, y * tilt - z);
+    }
+
+    // Monde -> pixels de fenêtre : on retire le coin haut gauche de la zone visible (center - size / 2) puis on
+    // multiplie par l'échelle k.
+    //   x, y, z : point du monde.   Rend la position en pixels dans la fenêtre.
+    NkVec2f Project(float x, float y, float z) const
+    {
+        // Échelle plan -> pixels.
         const float k = Scale();
         return NkVec2f((x - (center.x - size.x * .5f)) * k, (y * tilt - z - (center.y - size.y * .5f)) * k);
     }
-    // Pixels de fenêtre -> point (x, y) du SOL (z = 0) : l'inverse de Project sur le plan horizontal.
-    NkVec2f Unproject(float px, float py) const {
+
+    // Pixels de fenêtre -> point (x, y) du SOL (z = 0) : l'inverse de Project sur le plan horizontal. Sert à convertir
+    // un clic ou un toucher en case du plateau. Le y est divisé par tilt pour défaire l'écrasement vertical.
+    //   px, py : position en pixels dans la fenêtre.   Rend le point du sol (x, y).
+    NkVec2f Unproject(float px, float py) const
+    {
+        // Échelle plan -> pixels.
         const float k = Scale();
         return NkVec2f(px / k + (center.x - size.x * .5f), (py / k + (center.y - size.y * .5f)) / tilt);
     }
-    NkVec2f ShadowPos(float x, float y, float z) const { return Project(x + lightDir.x * z, y + lightDir.y * z, 0.f); }
-    float   Depth(float, float y, float z) const { return y + z * tilt; }
+
+    // Position à l'écran de l'ombre d'un point en hauteur : on décale le point sur le sol selon la lumière, puis on le
+    // projette avec z = 0 (l'ombre est posée sur le sol).
+    //   x, y, z : point du monde qui porte l'ombre.   Rend la position de l'ombre en pixels de fenêtre.
+    NkVec2f ShadowPos(float x, float y, float z) const
+    {
+        return Project(x + lightDir.x * z, y + lightDir.y * z, 0.f);
+    }
+
+    // Profondeur pour le tri du peintre : plus la valeur est grande, plus le point est proche de la caméra (dessiné
+    // après). Le premier paramètre (x) est ignoré : la profondeur ne dépend que de y et de z. Voir l'en-tête, point 3.
+    float Depth(float, float y, float z) const
+    {
+        return y + z * tilt;
+    }
 };
 
 } // namespace nk25d

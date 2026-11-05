@@ -62,9 +62,12 @@ jobs:
             adb shell monkey -p com.rihen.foodhunt -c android.intent.category.LAUNCHER 1 2>&1 | tee essai/lancement.txt
             sleep 25
             adb exec-out screencap -p > essai/capture_25s.png
-            adb shell input tap 300 1400
-            sleep 15
-            adb exec-out screencap -p > essai/capture_40s.png
+            adb shell wm size | tee essai/ecran.txt
+            adb shell input tap 177 480
+            sleep 2
+            adb exec-out screencap -p > essai/capture_apres_toucher_2s.png
+            sleep 10
+            adb exec-out screencap -p > essai/capture_apres_toucher_12s.png
             adb shell pidof com.rihen.foodhunt | tee essai/processus.txt || true
             adb logcat -d > essai/logcat.txt
 
